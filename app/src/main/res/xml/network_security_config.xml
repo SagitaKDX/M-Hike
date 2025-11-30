@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic to the backend server for development -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">206.189.93.77</domain>
+    </domain-config>
+    
+    <!-- For production, use HTTPS only -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+
