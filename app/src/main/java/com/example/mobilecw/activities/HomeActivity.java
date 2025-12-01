@@ -261,12 +261,10 @@ public class HomeActivity extends AppCompatActivity {
     }
     
     private void fetchWeather() {
-        // Using OpenWeatherMap API (free tier)
-        // You'll need to get your own API key from https://openweathermap.org/api
-        String apiKey = "YOUR_API_KEY_HERE"; // Replace with your API key
-        String city = "London"; // Default city, can be changed based on user location
-        String url = "https://api.openweathermap.org/data/2.5/weather?q=" + city + "&appid=" + apiKey + "&units=metric";
-        
+        // Using meteoblue Free Weather API (Current weather package)
+        // API URL generated from meteoblue configurator for a specific location
+        String url = "https://my.meteoblue.com/packages/current?apikey=nST0Iv3lgb9MOZHY&lat=10.4963&lon=107.169&asl=8&format=json&tz=GMT&forecast_days=1";
+
         JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(
                 Request.Method.GET,
                 url,
@@ -275,22 +273,35 @@ public class HomeActivity extends AppCompatActivity {
                     @Override
                     public void onResponse(JSONObject response) {
                         try {
-                            // Parse weather data
-                            String cityName = response.getString("name");
-                            JSONObject main = response.getJSONObject("main");
-                            double temp = main.getDouble("temp");
-                            JSONObject weather = response.getJSONArray("weather").getJSONObject(0);
-                            String description = weather.getString("description");
-                            String icon = weather.getString("icon");
-                            
+                            // Example meteoblue response:
+                            // {
+                            //   "metadata": {...},
+                            //   "units": {"temperature":"C", ...},
+                            //   "data_current": {
+                            //       "time":"2025-12-01 07:00",
+                            //       "temperature":30.92,
+                            //       "pictocode":2,
+                            //       ...
+                            //   }
+                            // }
+
+                            JSONObject metadata = response.getJSONObject("metadata");
+                            JSONObject units = response.getJSONObject("units");
+                            JSONObject dataCurrent = response.getJSONObject("data_current");
+
+                            double latitude = metadata.optDouble("latitude", 0.0);
+                            double longitude = metadata.optDouble("longitude", 0.0);
+                            double temp = dataCurrent.getDouble("temperature");
+                            String tempUnit = units.optString("temperature", "C");
+
+                            // Build simple location label from coordinates
+                            String locationLabel = String.format("Lat %.4f, Lon %.4f", latitude, longitude);
+
                             // Update UI
-                            weatherLocation.setText(cityName);
-                            weatherTemp.setText(String.format("%.0f°C", temp));
-                            weatherDescription.setText(capitalize(description));
-                            
-                            // Load weather icon (you can use Glide or similar)
-                            // For now, just show a default icon
-                            
+                            weatherLocation.setText(locationLabel);
+                            weatherTemp.setText(String.format("%.0f°%s", temp, tempUnit));
+                            weatherDescription.setText(getString(R.string.weather_updated));
+
                         } catch (Exception e) {
                             e.printStackTrace();
                             weatherDescription.setText(getString(R.string.weather_error));
@@ -308,7 +319,7 @@ public class HomeActivity extends AppCompatActivity {
                     }
                 }
         );
-        
+
         requestQueue.add(jsonObjectRequest);
     }
     
