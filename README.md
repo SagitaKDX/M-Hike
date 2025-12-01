@@ -16,7 +16,16 @@
 1. [Introduction](#introduction)
 2. [Feature Implementation Checklist](#section-1-feature-implementation-checklist)
 3. [Visual Documentation](#section-2-visual-documentation)
+   - [System Architecture](#21-system-architecture)
+   - [Database Entity-Relationship Diagram](#22-database-entity-relationship-diagram)
+   - [Selective Synchronisation Flow](#23-selective-synchronisation-flow)
+   - [Semantic Search Pipeline](#24-semantic-search-pipeline)
+   - [Fuzzy Search Algorithm](#25-fuzzy-search-algorithm-levenshtein-distance)
+   - [Weather API Integration Flow](#26-weather-api-integration-flow)
+   - [Camera Integration & Photo Attachment](#27-camera-integration--photo-attachment-flow)
+   - [GPS Location Auto-Capture](#28-gps-location-auto-capture-flow)
 4. [Reflection on Development](#section-3-reflection-on-development)
+   - [Advanced Features Beyond Basic Requirements](#advanced-features-beyond-basic-requirements)
 5. [Application Evaluation](#section-4-application-evaluation)
    - [Human-Computer Interaction (HCI)](#i-human-computer-interaction-hci)
    - [Security](#ii-security)
@@ -218,6 +227,163 @@ sequenceDiagram
     App-->>User: Display "Blue Lake Trail"<br/>(similarity: 0.85)
 ```
 
+### 2.5 Fuzzy Search Algorithm (Levenshtein Distance)
+
+The fuzzy search feature implements the Levenshtein Distance algorithm to enable typo-tolerant searching. This algorithm calculates the minimum number of single-character edits (insertions, deletions, or substitutions) required to transform one string into another.
+
+```mermaid
+flowchart TD
+    A["User Input: 'Snowden'"] --> B["Query Database for All Hikes"]
+    B --> C{"For Each Hike Name"}
+    
+    C --> D["Hike: 'Snowdon'"]
+    C --> E["Hike: 'Blue Lake'"]
+    C --> F["Hike: 'Mountain Peak'"]
+    
+    D --> G["Calculate Levenshtein Distance"]
+    E --> H["Calculate Levenshtein Distance"]
+    F --> I["Calculate Levenshtein Distance"]
+    
+    G --> J["Distance = 1<br/>(e→o)"]
+    H --> K["Distance = 7"]
+    I --> L["Distance = 10"]
+    
+    J --> M{"Distance ≤ Threshold (3)?"}
+    K --> N{"Distance ≤ Threshold (3)?"}
+    L --> O{"Distance ≤ Threshold (3)?"}
+    
+    M -->|Yes| P["✅ Include in Results<br/>Score: +10 points"]
+    N -->|No| Q["❌ Exclude"]
+    O -->|No| R["❌ Exclude"]
+    
+    P --> S["Return Matched Results<br/>Sorted by Relevance Score"]
+    
+    style A fill:#e3f2fd
+    style P fill:#c8e6c9
+    style Q fill:#ffcdd2
+    style R fill:#ffcdd2
+```
+
+#### Levenshtein Distance Matrix Visualisation
+
+The algorithm uses dynamic programming to build a matrix. Below shows the transformation from "Snowden" to "Snowdon":
+
+```
+        ""  S  n  o  w  d  o  n
+    ""   0  1  2  3  4  5  6  7
+    S    1  0  1  2  3  4  5  6
+    n    2  1  0  1  2  3  4  5
+    o    3  2  1  0  1  2  3  4
+    w    4  3  2  1  0  1  2  3
+    d    5  4  3  2  1  0  1  2
+    e    6  5  4  3  2  1  1  2
+    n    7  6  5  4  3  2  2  1  ← Final Distance = 1
+```
+
+**Implementation in SearchHelper.java:**
+```java
+public static int levenshteinDistance(String s1, String s2) {
+    int[][] dp = new int[s1.length() + 1][s2.length() + 1];
+    
+    // Base cases: empty string transformations
+    for (int i = 0; i <= s1.length(); i++) dp[i][0] = i;
+    for (int j = 0; j <= s2.length(); j++) dp[0][j] = j;
+    
+    // Fill matrix with minimum edit distances
+    for (int i = 1; i <= s1.length(); i++) {
+        for (int j = 1; j <= s2.length(); j++) {
+            int cost = (s1.charAt(i-1) == s2.charAt(j-1)) ? 0 : 1;
+            dp[i][j] = Math.min(
+                Math.min(dp[i-1][j] + 1,      // Deletion
+                         dp[i][j-1] + 1),      // Insertion
+                dp[i-1][j-1] + cost            // Substitution
+            );
+        }
+    }
+    return dp[s1.length()][s2.length()];
+}
+```
+
+### 2.6 Weather API Integration Flow
+
+The application integrates with the meteoblue Weather API to provide real-time weather conditions for hiking trails.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant HomeActivity
+    participant WeatherService
+    participant MeteoblueAPI as meteoblue API
+    
+    User->>HomeActivity: Open Home Screen
+    HomeActivity->>HomeActivity: Get device location (GPS)
+    HomeActivity->>WeatherService: fetchWeather(latitude, longitude)
+    WeatherService->>MeteoblueAPI: GET /weather?lat={lat}&lon={lon}&apikey={key}
+    MeteoblueAPI-->>WeatherService: JSON Response<br/>{temperature, conditions, icon}
+    WeatherService-->>HomeActivity: WeatherData object
+    HomeActivity->>HomeActivity: Update UI<br/>Display temperature & conditions
+    HomeActivity-->>User: Show weather card<br/>"18°C, Partly Cloudy"
+```
+
+### 2.7 Camera Integration & Photo Attachment Flow
+
+Users can attach photos to observations using the device camera or gallery.
+
+```mermaid
+flowchart TD
+    A["User taps 'Add Photo' button"] --> B{"Select Source"}
+    
+    B -->|Camera| C["Launch Camera Intent<br/>ACTION_IMAGE_CAPTURE"]
+    B -->|Gallery| D["Launch Gallery Intent<br/>ACTION_PICK"]
+    
+    C --> E["User captures photo"]
+    D --> F["User selects photo"]
+    
+    E --> G["onActivityResult()"]
+    F --> G
+    
+    G --> H["Get image URI"]
+    H --> I["Copy to app storage<br/>/data/data/.../images/"]
+    I --> J["Store path in Observation.picture"]
+    J --> K["Display thumbnail in UI"]
+    
+    K --> L{"Sync to Cloud?"}
+    L -->|User logged in| M["Upload image path reference"]
+    L -->|Local only| N["Keep locally until sync"]
+    
+    style A fill:#e3f2fd
+    style K fill:#c8e6c9
+```
+
+### 2.8 GPS Location Auto-Capture Flow
+
+The application can automatically capture the user's current GPS location when creating observations.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ObservationForm as ObservationFormActivity
+    participant LocationManager
+    participant GPS as Device GPS
+    
+    User->>ObservationForm: Tap "Use Current Location"
+    ObservationForm->>ObservationForm: Check location permission
+    
+    alt Permission not granted
+        ObservationForm->>User: Request ACCESS_FINE_LOCATION
+        User->>ObservationForm: Grant permission
+    end
+    
+    ObservationForm->>LocationManager: requestLocationUpdates()
+    LocationManager->>GPS: Query satellite position
+    GPS-->>LocationManager: Location object<br/>{lat: 51.5074, lon: -0.1278}
+    LocationManager-->>ObservationForm: onLocationChanged()
+    ObservationForm->>ObservationForm: Update location field<br/>"51.5074, -0.1278"
+    ObservationForm-->>User: Display captured coordinates
+    
+    Note over ObservationForm: Location stored in<br/>Observation.location field
+```
+
 ---
 
 ## Section 3: Reflection on Development
@@ -253,9 +419,96 @@ Another major learning curve was the integration of AI-powered semantic search. 
 
 This separation of concerns proved beneficial: the Android application remained lean, whilst computationally intensive operations were offloaded to a server with appropriate resources. The backend uses NumPy for efficient vector operations, enabling rapid similarity calculations even with large embedding vectors.
 
+### Advanced Features Beyond Basic Requirements
+
+Beyond the core CRUD functionality specified in the coursework, several advanced features were implemented to enhance the application's utility and demonstrate broader mobile development capabilities.
+
+#### 1. Fuzzy Search with Levenshtein Distance
+
+The basic requirement specified simple name-based search. However, mobile keyboard input is notoriously error-prone. To address this, the **Levenshtein Distance algorithm** was implemented to enable typo-tolerant searching.
+
+The algorithm calculates the minimum number of single-character edits (insertions, deletions, substitutions) needed to transform one string into another. By setting a threshold of 3 edits, the search can match "Snowden" to "Snowdon" despite the spelling error. This significantly improves user experience by preventing the frustrating "No Results Found" outcome when users make minor typing mistakes.
+
+```java
+// Fuzzy matching integration in search logic
+int distance = levenshteinDistance(userQuery, hikeName);
+if (distance <= FUZZY_THRESHOLD) {
+    score += (FUZZY_THRESHOLD - distance) * 5; // Closer matches score higher
+}
+```
+
+#### 2. Weather API Integration (External Web Service)
+
+The coursework mentioned integration with external web services as an advanced feature. The **meteoblue Weather API** was integrated to provide real-time weather information on the home screen.
+
+This required:
+- Registering for an API key and securely storing it using `BuildConfig`
+- Implementing asynchronous HTTP requests using Volley
+- Parsing JSON responses and updating the UI on the main thread
+- Handling network failures gracefully with fallback displays
+
+The weather feature is particularly relevant for a hiking application, as trail conditions are heavily weather-dependent.
+
+#### 3. Camera Integration for Photo Attachments
+
+The specification mentioned allowing photos from the camera to be added to stored data. This was implemented for the Observation entity, enabling users to attach photographic evidence of wildlife sightings, trail conditions, or vegetation.
+
+The implementation involved:
+- Creating Camera and Gallery intents with proper permission handling
+- Managing file URIs across different Android API levels (FileProvider for API 24+)
+- Storing image paths in the `Observation.picture` field
+- Displaying thumbnails in the observation list using efficient bitmap loading
+
+```java
+// Camera intent with FileProvider for secure file sharing
+Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+Uri photoUri = FileProvider.getUriForFile(this, authority, photoFile);
+cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+startActivityForResult(cameraIntent, REQUEST_CAMERA);
+```
+
+#### 4. GPS Location Auto-Capture
+
+The specification mentioned automatically picking up the user's location. This was implemented using Android's **FusedLocationProviderClient** for battery-efficient location retrieval.
+
+Users can tap a "Use Current Location" button in the observation form to automatically populate coordinates. This eliminates manual data entry and ensures accurate geographic tagging of observations.
+
+Key implementation challenges included:
+- Runtime permission handling for `ACCESS_FINE_LOCATION`
+- Graceful degradation when GPS is unavailable
+- Balancing location accuracy against battery consumption
+
+#### 5. AI-Powered Semantic Search
+
+This represents the most technically complex advanced feature. Rather than simple keyword matching, the semantic search understands the **meaning** behind queries.
+
+For example, a user searching for "peaceful water trail" will find "Blue Lake Trail" even though those exact words don't appear in the hike name. This is achieved through:
+- **Vector Embeddings**: Converting text descriptions into 768-dimensional numerical vectors using Google's Gemini 2.5 Flash model
+- **Cosine Similarity**: Measuring the angular distance between query and document vectors
+- **Microservices Architecture**: Offloading computationally intensive operations to a Python FastAPI backend
+
+This required learning new concepts including transformer-based language models, vector mathematics, and distributed system design.
+
+#### 6. Firebase Cloud Synchronisation
+
+Whilst SQLite storage was required, cloud synchronisation was implemented as an enhancement. This enables:
+- **Cross-device access**: Users can view their hikes on multiple devices
+- **Data backup**: Protection against device loss or damage
+- **Selective Sync**: Only unsynced records are uploaded, conserving bandwidth
+
+The Firebase integration also enabled **user authentication**, adding a security layer not present in basic SQLite-only implementations.
+
+#### 7. Active Hike Mode with Real-Time Tracking
+
+Beyond simple data entry, the application tracks **active hikes** in real-time. Users can tap "Start Hike" to begin tracking, and the home screen displays elapsed duration. This transforms the application from a passive data store into an active hiking companion.
+
+The feature required careful state management to ensure only one hike can be active at a time, and that the start/end timestamps are accurately recorded.
+
 ### Lessons Learned
 
 If starting the project again, **Dependency Injection** using Hilt would be implemented from the outset. Managing Singleton instances for the Database, SyncManager, and EmbeddingService became increasingly complex as the application grew. Hilt would have simplified component testing and reduced boilerplate code.
+
+The integration of multiple external services (Firebase, Gemini API, meteoblue) highlighted the importance of **error handling and graceful degradation**. Each external dependency is a potential point of failure, and the application must remain functional when any service is unavailable.
 
 Overall, this project reinforced that mobile development is less about coding screens and more about managing **state** and **data lifecycles** effectively. Understanding the Android Activity lifecycle and its interaction with background services proved essential for building a robust application.
 
@@ -434,7 +687,7 @@ public float[] fetchEmbedding(String firebaseUid, String chunkType,
 
 ### 5.4 Levenshtein Distance Algorithm for Fuzzy Search
 
-The `SearchHelper.java` utility implements the Levenshtein distance algorithm (Navarro, 2001) for typo-tolerant searching.
+The `SearchHelper.java` utility implements the Levenshtein distance algorithm (Navarro, 2001) for typo-tolerant searching. For a detailed visual explanation of how this algorithm works, including the dynamic programming matrix visualisation, see **Section 2.5: Fuzzy Search Algorithm**.
 
 ```java
 /**
