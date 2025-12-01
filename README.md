@@ -20,10 +20,7 @@
    - [Database Entity-Relationship Diagram](#22-database-entity-relationship-diagram)
    - [Selective Synchronisation Flow](#23-selective-synchronisation-flow)
    - [Semantic Search Pipeline](#24-semantic-search-pipeline)
-   - [Fuzzy Search Algorithm](#25-fuzzy-search-algorithm-levenshtein-distance)
-   - [Weather API Integration Flow](#26-weather-api-integration-flow)
-   - [Camera Integration & Photo Attachment](#27-camera-integration--photo-attachment-flow)
-   - [GPS Location Auto-Capture](#28-gps-location-auto-capture-flow)
+   - [Relevance Scoring Algorithm](#25-relevance-scoring-algorithm)
 4. [Reflection on Development](#section-3-reflection-on-development)
    - [Advanced Features Beyond Basic Requirements](#advanced-features-beyond-basic-requirements)
 5. [Application Evaluation](#section-4-application-evaluation)
@@ -227,162 +224,82 @@ sequenceDiagram
     App-->>User: Display "Blue Lake Trail"<br/>(similarity: 0.85)
 ```
 
-### 2.5 Fuzzy Search Algorithm (Levenshtein Distance)
+### 2.5 Relevance Scoring Algorithm
 
-The fuzzy search feature implements the Levenshtein Distance algorithm to enable typo-tolerant searching. This algorithm calculates the minimum number of single-character edits (insertions, deletions, or substitutions) required to transform one string into another.
+The search functionality implements a **multi-factor relevance scoring system** that ranks search results beyond simple string matching. Each hike receives a cumulative score based on multiple criteria, ensuring the most relevant results appear first.
 
-```mermaid
-flowchart TD
-    A["User Input: 'Snowden'"] --> B["Query Database for All Hikes"]
-    B --> C{"For Each Hike Name"}
-    
-    C --> D["Hike: 'Snowdon'"]
-    C --> E["Hike: 'Blue Lake'"]
-    C --> F["Hike: 'Mountain Peak'"]
-    
-    D --> G["Calculate Levenshtein Distance"]
-    E --> H["Calculate Levenshtein Distance"]
-    F --> I["Calculate Levenshtein Distance"]
-    
-    G --> J["Distance = 1<br/>(e→o)"]
-    H --> K["Distance = 7"]
-    I --> L["Distance = 10"]
-    
-    J --> M{"Distance ≤ Threshold (3)?"}
-    K --> N{"Distance ≤ Threshold (3)?"}
-    L --> O{"Distance ≤ Threshold (3)?"}
-    
-    M -->|Yes| P["✅ Include in Results<br/>Score: +10 points"]
-    N -->|No| Q["❌ Exclude"]
-    O -->|No| R["❌ Exclude"]
-    
-    P --> S["Return Matched Results<br/>Sorted by Relevance Score"]
-    
-    style A fill:#e3f2fd
-    style P fill:#c8e6c9
-    style Q fill:#ffcdd2
-    style R fill:#ffcdd2
-```
+#### Scoring Tiers
 
-#### Levenshtein Distance Matrix Visualisation
+The algorithm evaluates each hike against the user's query across five distinct tiers, with higher tiers receiving greater weight:
 
-The algorithm uses dynamic programming to build a matrix. Below shows the transformation from "Snowden" to "Snowdon":
+| Tier | Match Type | Points | Description |
+|------|-----------|--------|-------------|
+| **1** | Exact Match | +100 (name), +80 (location) | Query exactly matches the field value |
+| **2** | Prefix Match | +50 (name), +40 (location) | Field value starts with the query |
+| **3** | Contains Match | +30 (name), +25 (location), +15 (description) | Query appears anywhere in the field |
+| **4** | Word-by-Word | +10 (name), +8 (location) | Individual query words found in fields |
+| **5** | Fuzzy Match | +5 to +15 | Typo-tolerant matching using edit distance |
 
-```
-        ""  S  n  o  w  d  o  n
-    ""   0  1  2  3  4  5  6  7
-    S    1  0  1  2  3  4  5  6
-    n    2  1  0  1  2  3  4  5
-    o    3  2  1  0  1  2  3  4
-    w    4  3  2  1  0  1  2  3
-    d    5  4  3  2  1  0  1  2
-    e    6  5  4  3  2  1  1  2
-    n    7  6  5  4  3  2  2  1  ← Final Distance = 1
-```
-
-**Implementation in SearchHelper.java:**
-```java
-public static int levenshteinDistance(String s1, String s2) {
-    int[][] dp = new int[s1.length() + 1][s2.length() + 1];
-    
-    // Base cases: empty string transformations
-    for (int i = 0; i <= s1.length(); i++) dp[i][0] = i;
-    for (int j = 0; j <= s2.length(); j++) dp[0][j] = j;
-    
-    // Fill matrix with minimum edit distances
-    for (int i = 1; i <= s1.length(); i++) {
-        for (int j = 1; j <= s2.length(); j++) {
-            int cost = (s1.charAt(i-1) == s2.charAt(j-1)) ? 0 : 1;
-            dp[i][j] = Math.min(
-                Math.min(dp[i-1][j] + 1,      // Deletion
-                         dp[i][j-1] + 1),      // Insertion
-                dp[i-1][j-1] + cost            // Substitution
-            );
-        }
-    }
-    return dp[s1.length()][s2.length()];
-}
-```
-
-### 2.6 Weather API Integration Flow
-
-The application integrates with the meteoblue Weather API to provide real-time weather conditions for hiking trails.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant HomeActivity
-    participant WeatherService
-    participant MeteoblueAPI as meteoblue API
-    
-    User->>HomeActivity: Open Home Screen
-    HomeActivity->>HomeActivity: Get device location (GPS)
-    HomeActivity->>WeatherService: fetchWeather(latitude, longitude)
-    WeatherService->>MeteoblueAPI: GET /weather?lat={lat}&lon={lon}&apikey={key}
-    MeteoblueAPI-->>WeatherService: JSON Response<br/>{temperature, conditions, icon}
-    WeatherService-->>HomeActivity: WeatherData object
-    HomeActivity->>HomeActivity: Update UI<br/>Display temperature & conditions
-    HomeActivity-->>User: Show weather card<br/>"18°C, Partly Cloudy"
-```
-
-### 2.7 Camera Integration & Photo Attachment Flow
-
-Users can attach photos to observations using the device camera or gallery.
+#### Scoring Flow Diagram
 
 ```mermaid
 flowchart TD
-    A["User taps 'Add Photo' button"] --> B{"Select Source"}
+    A["User Query: 'mountain'"] --> B{"Check Each Hike"}
     
-    B -->|Camera| C["Launch Camera Intent<br/>ACTION_IMAGE_CAPTURE"]
-    B -->|Gallery| D["Launch Gallery Intent<br/>ACTION_PICK"]
+    B --> C["Hike: 'Mountain Peak Trail'"]
+    B --> D["Hike: 'Lake View Path'"]
+    B --> E["Hike: 'Snowdon Summit'"]
     
-    C --> E["User captures photo"]
-    D --> F["User selects photo"]
+    C --> F["Tier 1: Exact?"]
+    F -->|No| G["Tier 2: Starts with?"]
+    G -->|Yes| H["+50 points"]
+    H --> I["Tier 3: Contains?"]
+    I -->|Yes| J["+30 points"]
+    J --> K["Total: 80 points"]
     
-    E --> G["onActivityResult()"]
-    F --> G
+    D --> L["Tier 1: Exact?"]
+    L -->|No| M["Tier 2: Starts with?"]
+    M -->|No| N["Tier 3: Contains?"]
+    N -->|No| O["Tier 5: Fuzzy?"]
+    O -->|No| P["Total: 0 points"]
     
-    G --> H["Get image URI"]
-    H --> I["Copy to app storage<br/>/data/data/.../images/"]
-    I --> J["Store path in Observation.picture"]
-    J --> K["Display thumbnail in UI"]
+    E --> Q["Tier 1-4: No matches"]
+    Q --> R["Tier 5: Fuzzy match?"]
+    R -->|Distance=3| S["+5 points"]
+    S --> T["Total: 5 points"]
     
-    K --> L{"Sync to Cloud?"}
-    L -->|User logged in| M["Upload image path reference"]
-    L -->|Local only| N["Keep locally until sync"]
+    K --> U["Sort by Score"]
+    P --> U
+    T --> U
+    
+    U --> V["Return Results:<br/>1. Mountain Peak Trail (80)<br/>2. Snowdon Summit (5)<br/>3. Lake View Path (0)"]
     
     style A fill:#e3f2fd
-    style K fill:#c8e6c9
+    style V fill:#c8e6c9
+    style K fill:#fff9c4
+    style T fill:#fff9c4
+    style P fill:#ffcdd2
 ```
 
-### 2.8 GPS Location Auto-Capture Flow
+#### Why Multi-Factor Scoring Matters
 
-The application can automatically capture the user's current GPS location when creating observations.
+A simple "contains" search would treat all matches equally, potentially burying the most relevant results. The tiered approach ensures that:
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant ObservationForm as ObservationFormActivity
-    participant LocationManager
-    participant GPS as Device GPS
-    
-    User->>ObservationForm: Tap "Use Current Location"
-    ObservationForm->>ObservationForm: Check location permission
-    
-    alt Permission not granted
-        ObservationForm->>User: Request ACCESS_FINE_LOCATION
-        User->>ObservationForm: Grant permission
-    end
-    
-    ObservationForm->>LocationManager: requestLocationUpdates()
-    LocationManager->>GPS: Query satellite position
-    GPS-->>LocationManager: Location object<br/>{lat: 51.5074, lon: -0.1278}
-    LocationManager-->>ObservationForm: onLocationChanged()
-    ObservationForm->>ObservationForm: Update location field<br/>"51.5074, -0.1278"
-    ObservationForm-->>User: Display captured coordinates
-    
-    Note over ObservationForm: Location stored in<br/>Observation.location field
-```
+- **Exact matches** appear first (the user likely knows what they're looking for)
+- **Prefix matches** rank highly (users often type the beginning of names)
+- **Partial matches** are still discoverable but ranked lower
+- **Typo-tolerant matches** prevent "No Results Found" frustration
+
+For example, if a user searches for "mountain":
+
+| Hike Name | Match Type | Score | Rank |
+|-----------|-----------|-------|------|
+| Mountain Peak Trail | Prefix + Contains | 80 | 1st |
+| Blue Mountain Lake | Contains | 30 | 2nd |
+| Rocky Summit (description mentions "mountain views") | Description Contains | 15 | 3rd |
+| Mountan Valley (typo in database) | Fuzzy (distance=1) | 10 | 4th |
+
+This scoring hierarchy creates an intuitive search experience where users find what they expect, even with imperfect queries.
 
 ---
 
