@@ -546,16 +546,19 @@ protected void onCreate(Bundle savedInstanceState) {
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises UI components, sets up bottom navigation, loads all dashboard data |
-| `initViews()` | Binds all XML layout elements to Java fields |
-| `setupBottomNavigation()` | Configures the BottomNavigationView with navigation listeners |
-| `loadActivityStats()` | Queries Room database for total hikes, active hikes, and total distance statistics |
-| `loadNearbyTrails()` | Fetches and displays list of available trails in a horizontal RecyclerView |
-| `loadActiveHike()` | Checks for currently active hike and displays real-time duration |
-| `fetchWeather()` | Makes HTTP request to meteoblue Weather API and updates weather card |
-| `updateWeatherUI(JSONObject)` | Parses weather JSON response and updates UI elements |
-| `navigateToSearch()` | Handles navigation to SearchActivity |
-| `navigateToSettings()` | Handles navigation to SettingsActivity |
+| `onCreate(Bundle)` | Initialises database, Volley request queue, executor service, SharedPreferences, views, bottom navigation, and loads all data |
+| `onResume()` | Refreshes activity stats, nearby trails, and active hike when returning from other activities |
+| `initializeViews()` | Binds all XML layout elements to Java fields including weather card, stats, RecyclerView, navigation buttons |
+| `setupBottomNavigation()` | Configures bottom navigation with click listeners for Home, Hiking, Users, Settings |
+| `setActiveNavItem(LinearLayout)` | Highlights the currently active navigation item with primary colour |
+| `resetNavItem(LinearLayout)` | Resets a navigation item to inactive grey state |
+| `loadUserData()` | Loads username from SharedPreferences and displays in header |
+| `loadActivityStats()` | Queries Room database asynchronously for total hike count and total kilometres, updates UI on main thread |
+| `loadNearbyTrails()` | Fetches user's hikes or all hikes, populates horizontal RecyclerView with NearbyTrailAdapter |
+| `fetchWeather()` | Makes Volley GET request to meteoblue Weather API, parses JSON response, updates weather card |
+| `loadActiveHike()` | Queries for active hike, calculates elapsed duration, shows/hides active hike card |
+| `capitalize(String)` | Helper to capitalise first letter of a string |
+| `onDestroy()` | Shuts down ExecutorService to prevent memory leaks |
 
 **Critical Code** - Weather API Integration:
 ```java
@@ -581,16 +584,16 @@ private void fetchWeather() {
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises form, checks for edit mode, loads existing hike if editing |
-| `initializeViews()` | Binds all form input fields (EditText, Spinner, CheckBox, etc.) |
-| `setupDatePicker()` | Creates and configures MaterialDatePicker for date selection |
-| `setupDifficultySpinner()` | Populates difficulty dropdown (Easy, Medium, Hard) |
-| `setupParkingToggle()` | Configures parking availability switch with parking pass field visibility |
-| `loadHikeForEdit(int)` | Queries database for existing hike and populates form |
-| `populateForm(Hike)` | Fills all form fields with hike data for editing |
-| `validateForm()` | Validates all required fields before submission |
-| `saveHike()` | Creates/updates Hike entity and persists to Room database |
-| `showConfirmationDialog()` | Displays summary dialog before final save |
+| `onCreate(Bundle)` | Initialises database, executor, date format, views, spinner, date picker, click listeners; checks for edit mode from intent |
+| `initializeViews()` | Binds all form input fields (EditText, Spinner, Switch, Button, ImageButton, TextView) and sets default date to today |
+| `setupDifficultySpinner()` | Populates difficulty dropdown with Easy/Medium/Hard options from string array resource |
+| `setupDatePicker()` | Creates DatePickerDialog triggered when date input is clicked, updates calendar and input text |
+| `setupClickListeners()` | Configures back button, cancel button (both finish activity), and save button (calls saveHike) |
+| `loadHikeForEdit(int)` | Queries Room database on background thread for existing hike, calls populateForm on UI thread |
+| `populateForm(Hike)` | Fills all form fields with hike data: name, location, date, length, difficulty, parking, description |
+| `saveHike()` | Validates form, parses inputs, creates Hike entity, sets userId if logged in, inserts/updates in Room, triggers sync if online |
+| `validateForm()` | Validates all required fields (name, location, date, length > 0), sets error messages, returns boolean |
+| `onDestroy()` | Shuts down ExecutorService |
 
 **Critical Code** - Form Validation:
 ```java
@@ -622,18 +625,25 @@ private boolean validateForm() {
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Sets up RecyclerView, adapter, and UI controls |
-| `initViews()` | Binds layout elements including search bar and filter chips |
-| `setupRecyclerView()` | Configures RecyclerView with LinearLayoutManager and adapter |
-| `loadHikes()` | Queries all hikes from Room database for current user |
-| `setupSearch()` | Attaches TextWatcher to search input for real-time filtering |
-| `filterHikes(String)` | Filters displayed hikes based on search query |
-| `toggleSelectionMode()` | Enables/disables multi-select mode for batch deletion |
-| `deleteSelectedHikes()` | Deletes all selected hikes with confirmation dialog |
-| `seedSampleData()` | Creates demo hikes for testing (development feature) |
-| `onHikeClicked(Hike)` | Navigates to HikeDetailActivity for the selected hike |
-| `onEditClicked(Hike)` | Opens EnterHikeActivity in edit mode |
-| `onDeleteClicked(Hike)` | Single hike deletion with confirmation |
+| `onCreate(Bundle)` | Initialises database, DAO, executor, views, adapter with selection listener, RecyclerView, buttons, and loads hikes |
+| `onResume()` | Refreshes hike list and triggers Firebase sync if user is logged in and online |
+| `loadHikes()` | Queries hikes by userId (or non-registered users), seeds sample data if empty, submits list to adapter |
+| `setupSearch()` | Attaches TextWatcher to search input that calls filterHikes on text change |
+| `setupManagementButtons()` | Configures delete selected button (hidden initially), edit mode button, delete all button |
+| `toggleSelectionMode()` | Toggles multi-select mode: shows/hides checkboxes, enables/disables add button, changes edit icon |
+| `exitSelectionMode()` | Exits selection mode, hides delete button, resets UI state |
+| `confirmDeleteSelected()` | Shows AlertDialog to confirm deletion of selected hikes |
+| `deleteSelectedHikes(List<Integer>)` | Deletes selected hikes by IDs on background thread, refreshes list |
+| `confirmDeleteAll()` | Shows AlertDialog to confirm deletion of all hikes |
+| `deleteAllHikes()` | Deletes all hikes from database, exits selection mode, refreshes list |
+| `setupBottomNavigation()` | Configures bottom navigation with Hiking tab active |
+| `setActiveNavItem(LinearLayout)` | Highlights active navigation item |
+| `resetNavItem(LinearLayout)` | Resets navigation item to inactive state |
+| `filterHikes(String)` | Filters hikes by name using SQL LIKE query, updates adapter |
+| `seedSampleData()` | Creates 3 sample hikes for demonstration purposes |
+| `createSampleHike(...)` | Factory method to create a sample Hike entity |
+| `onHikeClicked(Hike)` | Navigates to HikeDetailActivity with hike ID |
+| `onDestroy()` | Shuts down ExecutorService |
 
 **Critical Code** - Multi-Select Deletion:
 ```java
@@ -665,16 +675,18 @@ private void deleteSelectedHikes() {
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Retrieves hike ID from intent and loads data |
-| `loadHike(int)` | Queries Room database for the specific hike |
-| `populateData(Hike)` | Fills all UI fields with hike information |
-| `setupObservationsButton()` | Configures navigation to observations list |
-| `startHike()` | Begins active hike tracking with timestamp |
-| `endHike()` | Ends active hike and calculates duration |
-| `confirmStartHike()` | Shows confirmation dialog before starting |
-| `syncIfLoggedIn()` | Triggers Firebase sync if user is authenticated |
-| `onEditClicked()` | Opens edit form for this hike |
-| `onDeleteClicked()` | Deletes hike with navigation back to list |
+| `onCreate(Bundle)` | Initialises date formats, database, DAO, executor, views, click listeners; loads hike by ID from intent |
+| `onResume()` | Reloads hike to refresh active status when returning from other screens |
+| `loadHike(int)` | Queries Room database on background thread, calls populateData on UI thread or finishes if not found |
+| `initializeViews()` | Binds all TextViews, Buttons, ImageButton, CardView for hike details display |
+| `setupClickListeners()` | Configures back button, back to list button, start/end hike button, view observations button, edit button |
+| `populateData()` | Fills all UI fields: name, location, ID, date, length, difficulty, parking status, description; updates start/end button state |
+| `confirmStartHike()` | Shows AlertDialog to confirm starting the hike |
+| `confirmEndHike()` | Shows AlertDialog to confirm ending the hike |
+| `startHike()` | Deactivates all hikes, activates this hike with start timestamp, reloads data, syncs if logged in |
+| `endHike()` | Sets end timestamp on this hike, deactivates it, reloads data, syncs if logged in |
+| `syncIfLoggedIn()` | Triggers FirebaseSyncManager.syncNow() if user is logged in and device is online |
+| `onDestroy()` | Shuts down ExecutorService |
 
 **Critical Code** - Start/End Hike:
 ```java
@@ -701,16 +713,25 @@ private void startHike() {
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises search UI and mode toggles |
-| `initViews()` | Binds search input, mode selector, and filter controls |
-| `setupSearchModeToggle()` | Configures tabs for Basic/Advanced/Semantic search modes |
-| `performSearch(String)` | Executes fuzzy search using SearchHelper |
-| `performSemanticSearch(String)` | Calls SemanticSearchService for AI-powered search |
-| `performAdvancedSearch()` | Applies multiple filter criteria simultaneously |
-| `applyOtherFilters(List<Hike>, ...)` | Filters by date, difficulty, length, parking |
-| `displayResults(List<Hike>)` | Updates RecyclerView with search results |
-| `showNoResults()` | Displays empty state when no matches found |
-| `clearFilters()` | Resets all filter inputs to default values |
+| `onCreate(Bundle)` | Initialises database, DAO, executor, date format, calendars, views, listeners, RecyclerView, spinners, loads all hikes |
+| `initializeViews()` | Binds all search inputs, filter inputs, buttons, RecyclerView, empty state, semantic search switch |
+| `setupSpinners()` | Configures difficulty and parking AutoCompleteTextView dropdowns with array adapters |
+| `setupListeners()` | Configures back button, toggle filters, clear filters, search button, TextWatchers, date pickers, semantic switch |
+| `updateClearButtonVisibility()` | Shows/hides clear filters button based on whether any filters are active |
+| `hasActiveFilters()` | Returns true if any search/filter input has a value |
+| `setupRecyclerView()` | Initialises HikeListAdapter with LinearLayoutManager |
+| `loadAllHikes()` | Queries all hikes from database, updates filteredHikes and results display |
+| `performSearch(String)` | Executes fuzzy or semantic search based on switch state, applies additional filters |
+| `performSemanticSearch(String)` | Calls SemanticSearchService API, matches results with local Room data, applies filters |
+| `performAdvancedSearch()` | Applies all filters (name, location, length, date, difficulty, parking) using SearchHelper |
+| `applyOtherFilters(List<Hike>)` | Applies non-text filters to a list of hikes |
+| `updateResults(List<Hike>)` | Updates adapter, results count text, shows/hides empty state |
+| `toggleFilters()` | Shows/hides the advanced filters card |
+| `clearFilters()` | Resets all filter inputs to empty, shows all hikes |
+| `showStartDatePicker()` | Opens DatePickerDialog for start date filter |
+| `showEndDatePicker()` | Opens DatePickerDialog for end date filter |
+| `onHikeClicked(Hike)` | Navigates to HikeDetailActivity |
+| `onDestroy()` | Shuts down ExecutorService |
 
 **Critical Code** - Semantic Search Integration:
 ```java
@@ -741,19 +762,18 @@ private void performSemanticSearch(String query) {
 
 ---
 
-#### 5.2.6 LoginActivity.java (~180 lines)
+#### 5.2.6 LoginActivity.java (178 lines)
 
 **Purpose**: Firebase Authentication login with Room database synchronisation.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises login form and Firebase Auth instance |
-| `initViews()` | Binds email/password inputs and login button |
-| `handleLogin()` | Validates credentials and initiates Firebase sign-in |
-| `onLoginSuccess(FirebaseUser)` | Syncs Firebase user with local Room database |
-| `syncUserToRoom(FirebaseUser)` | Creates/updates local User entity with Firebase UID |
-| `navigateToHome()` | Redirects to HomeActivity after successful login |
-| `navigateToSignup()` | Opens SignupActivity for new users |
+| `onCreate(Bundle)` | Initialises database, DAO, executor, FirebaseAuth instance, views, and click listeners |
+| `initializeViews()` | Binds back button, email/password EditTexts, TextInputLayouts, login/signup buttons, forgot password text |
+| `setupClickListeners()` | Configures back button (finish), login button (handleLogin), signup button (navigate), forgot password (toast) |
+| `handleLogin()` | Validates form, calls Firebase signInWithEmailAndPassword, syncs with Room user on success |
+| `validateForm(String, String)` | Validates email format using regex pattern and password minimum length (6 chars) |
+| `onDestroy()` | Shuts down ExecutorService |
 
 **Critical Code** - Dual Identity Sync:
 ```java
@@ -785,14 +805,12 @@ private void syncUserToRoom(FirebaseUser firebaseUser) {
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises registration form |
-| `initViews()` | Binds all registration input fields |
-| `handleSignup()` | Validates form and creates Firebase account |
-| `validateInputs()` | Checks all fields (email format, password strength, etc.) |
-| `createFirebaseUser(String, String)` | Calls Firebase createUserWithEmailAndPassword |
-| `createLocalUser(FirebaseUser)` | Inserts new User entity into Room database |
-| `setupSession(int, String)` | Stores user IDs in SessionManager |
-| `navigateToHome()` | Redirects after successful registration |
+| `onCreate(Bundle)` | Initialises database, DAO, executor, FirebaseAuth, views, and click listeners |
+| `initializeViews()` | Binds back button, name/email/phone/password/confirm EditTexts and TextInputLayouts, signup/login buttons |
+| `setupClickListeners()` | Configures back button (finish), signup button (handleSignup), login button (navigate to LoginActivity) |
+| `handleSignup()` | Validates form, checks email uniqueness in Room, creates Firebase Auth account, creates Room user with firebaseUid |
+| `validateForm(String, String, String, String, String)` | Validates name (min 2 chars), email (regex), phone (regex), password (min 6), confirm password (match) |
+| `onDestroy()` | Shuts down ExecutorService |
 
 **Critical Code** - Password Validation:
 ```java
@@ -817,137 +835,89 @@ private boolean validateInputs() {
 
 #### 5.2.8 SettingsActivity.java (273 lines)
 
-**Purpose**: User settings and logout with secure data cleanup.
+**Purpose**: App settings, theme toggle, account information display, and logout functionality.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises settings UI and user profile section |
-| `loadUserProfile()` | Displays current user's email and name |
-| `handleLogout()` | Orchestrates the secure logout process |
-| `syncBeforeLogout()` | Uploads all pending data to Firebase before clearing |
-| `clearLocalData()` | Wipes all tables from Room database |
-| `clearSession()` | Removes user IDs from SharedPreferences |
-| `navigateToLogin()` | Redirects to LoginActivity after logout |
-
-**Critical Code** - Secure Logout:
-```java
-private void handleLogout() {
-    new AlertDialog.Builder(this)
-        .setTitle("Logout")
-        .setMessage("Your local data will be synced and then cleared. Continue?")
-        .setPositiveButton("Logout", (dialog, which) -> {
-            FirebaseSyncManager.getInstance(this).syncNow(new SyncCallback() {
-                @Override
-                public void onSuccess() {
-                    executorService.execute(() -> {
-                        database.clearAllTables();  // Wipe-on-Logout
-                        SessionManager.clearCurrentUser(SettingsActivity.this);
-                        FirebaseAuth.getInstance().signOut();
-                        runOnUiThread(() -> navigateToLogin());
-                    });
-                }
-                
-                @Override
-                public void onFailure(Exception e) {
-                    // Still logout but warn user data may not be synced
-                    Toast.makeText(SettingsActivity.this, 
-                        "Sync failed - some data may be lost", Toast.LENGTH_LONG).show();
-                }
-            });
-        })
-        .setNegativeButton("Cancel", null)
-        .show();
-}
-```
+| `onCreate(Bundle)` | Initialises database, SessionManager, views, theme switch, account info, and bottom navigation |
+| `initializeViews()` | Binds all UI elements: theme container/switch/description, profile section, account cards, logout button, nav items |
+| `setupClickListeners()` | Configures account card clicks (showComingSoonMessage), profile area (navigateToUsers), logout button (handleLogout) |
+| `initializeThemeSwitch()` | Checks SharedPreferences for "dark_mode" setting and sets switch state accordingly |
+| `updateThemeDescription(boolean)` | Updates description TextView to show "Dark theme" or "Light theme" |
+| `loadAccountInfo()` | Loads user data from Room if logged in, else displays "Guest User" |
+| `setAccountInfo(User)` | Populates name, email, initials circle from User object |
+| `generateInitials(String)` | Creates initials (up to 2 chars) from user's full name |
+| `updateLogoutState()` | Shows/hides logout button based on login status |
+| `handleLogout()` | Signs out Firebase, clears SessionManager, navigates to MainActivity with FLAG_ACTIVITY_CLEAR_TASK |
+| `navigateToUsers()` | Starts UsersActivity |
+| `setupBottomNavigation()` | Configures bottom nav with click listeners for home, search, add, settings |
+| `setActiveNavItem(ImageView, TextView, int)` | Highlights selected nav item with primary color |
+| `resetNavItem(ImageView, TextView)` | Resets nav item to default gray color |
+| `showComingSoonMessage()` | Displays "Coming soon" Snackbar for unimplemented features |
+| `onDestroy()` | Shuts down ExecutorService |
 
 ---
 
 #### 5.2.9 UsersActivity.java (425 lines)
 
-**Purpose**: User profile display with hiking statistics and account management.
+**Purpose**: User profile display with hiking statistics, recent activity, and account management.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises profile UI |
-| `checkLoginStatus()` | Verifies user is logged in, redirects if not |
-| `loadUserData()` | Fetches user profile from Room database |
-| `loadStatistics()` | Calculates and displays hiking statistics |
-| `calculateTotalDistance()` | Sums length of all user's hikes |
-| `calculateTotalDuration()` | Calculates total time spent hiking |
-| `countCompletedHikes()` | Counts hikes with both start and end times |
-| `updateProfileUI(User)` | Populates UI with user information |
-| `navigateToEditProfile()` | Opens profile edit form |
+| `onCreate(Bundle)` | Initialises database, DAOs, SessionManager, executor, views, login check, and bottom navigation |
+| `onResume()` | Reloads user data when activity resumes |
+| `initializeViews()` | Binds all profile UI elements: cards, stats, activity containers, nav items |
+| `checkLoginStatus()` | Determines if user is logged in and shows appropriate view |
+| `showNonRegisteredView()` | Displays guest user placeholder with login prompt |
+| `showRegisteredView()` | Shows full profile with stats and activity for logged-in users |
+| `loadUserData()` | Fetches user from Room by ID, populates profile section with name/email/initials |
+| `getInitials(String)` | Generates up to 2-character initials from user's name |
+| `loadStatistics()` | Queries all user's hikes and calculates total count, distance, duration, average distance |
+| `loadActivityOverview()` | Counts completed hikes, pending hikes, and total observations for the user |
+| `loadRecentActivity()` | Loads last 5 hikes and dynamically creates activity item views |
+| `setupBottomNavigation()` | Configures click listeners for home, search, add, settings nav items |
+| `setActiveNavItem(ImageView, TextView, int)` | Highlights selected nav item with primary color |
+| `resetNavItem(ImageView, TextView)` | Resets nav item color to default gray |
+| `onHikeClicked(Hike)` | Navigates to HikeDetailActivity with selected hike ID |
+| `onDestroy()` | Shuts down ExecutorService |
 
 ---
 
 #### 5.2.10 ObservationListActivity.java (~150 lines)
 
-**Purpose**: Displays all observations for a specific hike.
+**Purpose**: Displays all observations for a specific hike with add/edit/delete functionality.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Retrieves hike ID and sets up RecyclerView |
-| `loadObservations()` | Queries observations for the parent hike |
-| `openAddObservation()` | Navigates to ObservationFormActivity |
-| `onEditClicked(Observation)` | Opens edit form for observation |
-| `deleteObservation(Observation)` | Removes observation with confirmation |
-| `onBackPressed()` | Returns to parent HikeDetailActivity |
+| `onCreate(Bundle)` | Initialises database, DAO, executor, retrieves hikeId from intent, sets up RecyclerView and FAB |
+| `onResume()` | Reloads observations when activity resumes |
+| `loadObservations()` | Queries observations by hikeId from Room and updates adapter |
+| `openAddObservation()` | Starts ObservationFormActivity with hikeId for new observation |
+| `onEditClicked(Observation)` | Starts ObservationFormActivity with observation ID for editing |
+| `onDeleteClicked(Observation)` | Shows confirmation dialog before deleting observation |
+| `deleteObservation(Observation)` | Removes observation from Room database via DAO |
+| `onDestroy()` | Shuts down ExecutorService |
 
 ---
 
 #### 5.2.11 ObservationFormActivity.java (435 lines)
 
-**Purpose**: Form for creating/editing observations with camera and GPS integration.
+**Purpose**: Form for creating/editing observations with image picker and GPS location capture.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises form with optional pre-populated data |
-| `initViews()` | Binds observation text, comments, location, and image fields |
-| `setupImagePickers()` | Configures camera and gallery image selection |
-| `launchCamera()` | Opens device camera with FileProvider for secure file access |
-| `launchGallery()` | Opens image picker for existing photos |
-| `onActivityResult(int, int, Intent)` | Handles returned camera/gallery images |
-| `getCurrentLocation()` | Uses FusedLocationProviderClient for GPS coordinates |
-| `showDateTimePicker()` | Opens combined date and time selection |
-| `saveObservation()` | Validates and persists observation to Room |
-| `requestLocationPermission()` | Handles runtime permission for ACCESS_FINE_LOCATION |
-
-**Critical Code** - Camera with FileProvider:
-```java
-private void launchCamera() {
-    Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-    if (cameraIntent.resolveActivity(getPackageManager()) != null) {
-        File photoFile = createImageFile();
-        if (photoFile != null) {
-            currentPhotoPath = photoFile.getAbsolutePath();
-            Uri photoUri = FileProvider.getUriForFile(this,
-                getPackageName() + ".fileprovider", photoFile);
-            cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
-            startActivityForResult(cameraIntent, REQUEST_CAMERA);
-        }
-    }
-}
-```
-
-**Critical Code** - GPS Location:
-```java
-private void getCurrentLocation() {
-    if (ActivityCompat.checkSelfPermission(this, 
-            Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-        requestLocationPermission();
-        return;
-    }
-    
-    fusedLocationClient.getLastLocation()
-        .addOnSuccessListener(location -> {
-            if (location != null) {
-                String coords = String.format(Locale.US, 
-                    "%.6f, %.6f", location.getLatitude(), location.getLongitude());
-                locationInput.setText(coords);
-            }
-        });
-}
-```
+| `onCreate(Bundle)` | Initialises database, DAOs, executor, FusedLocationProviderClient, views, image pickers, and loads existing observation if editing |
+| `initializeViews()` | Binds all form fields: observation EditText, comments EditText, date/time button, location container, image preview, camera/gallery buttons, save button |
+| `setupImagePickers()` | Registers ActivityResultLaunchers for camera (takePictureLauncher) and gallery (pickImageLauncher) |
+| `setupClickListeners()` | Configures date/time picker, location capture, camera, gallery, and save button actions |
+| `showDateTimePicker()` | Shows DatePickerDialog, then TimePickerDialog, combines into formatted datetime string |
+| `getCurrentLocation()` | Checks permission, uses FusedLocationProviderClient.getLastLocation() to populate location field |
+| `onRequestPermissionsResult(int, String[], int[])` | Handles ACCESS_FINE_LOCATION permission callback |
+| `loadObservationForEdit()` | Queries observation by ID from intent and populates form fields |
+| `populateForm(Observation)` | Sets observation text, comments, datetime, location, and image preview from existing observation |
+| `saveObservation()` | Validates form, creates/updates Observation entity, inserts/updates via DAO |
+| `validateForm()` | Checks observation text is not empty, returns boolean |
+| `onDestroy()` | Shuts down ExecutorService |
 
 ---
 
@@ -1072,41 +1042,27 @@ public class Converters {
 
 | Method | Description |
 |--------|-------------|
-| `insertHike(Hike)` | Inserts new hike, returns generated ID |
-| `updateHike(Hike)` | Updates existing hike |
+| `insertHike(Hike)` | Inserts new hike, returns generated ID (OnConflictStrategy.REPLACE) |
+| `insertAllHikes(List<Hike>)` | Bulk insert hikes (OnConflictStrategy.REPLACE) |
+| `getAllHikes()` | Returns all hikes ordered by date descending |
+| `getHikeById(int)` | Returns single hike by primary key |
+| `getHikesByUserId(Integer)` | Returns hikes for specific user ordered by date descending |
+| `getHikesForNonRegisteredUsers()` | Returns hikes where userId is NULL |
+| `searchHikesByName(String)` | LIKE query search on name field |
+| `advancedSearch(String, String, Boolean, Date, Date)` | Complex multi-field search with optional filters |
+| `searchHikesByDateRange(Date, Date)` | Returns hikes within date range |
+| `updateHike(Hike)` | Updates existing hike entity |
 | `deleteHike(Hike)` | Deletes hike entity |
 | `deleteHikeById(int)` | Deletes hike by primary key |
-| `getAllHikes()` | Returns all hikes ordered by date descending |
-| `getHikesByUserId(Integer)` | Returns hikes for specific user |
-| `getHikeById(int)` | Returns single hike by ID |
-| `getUnsyncedHikes()` | Returns hikes where synced = false (for sync) |
-| `markHikeAsSynced(int)` | Sets synced = true after successful upload |
-| `getActiveHike()` | Returns currently active hike (if any) |
-| `startHike(int, long, long)` | Activates hike with start timestamp |
-| `endHike(int, long, long)` | Deactivates hike with end timestamp |
-| `deactivateAllHikes()` | Sets isActive = false on all hikes |
-| `searchHikes(String)` | Searches hikes by name or location (LIKE query) |
-
-**Critical Code**:
-```java
-@Dao
-public interface HikeDao {
-    @Query("SELECT * FROM hikes WHERE synced = 0 OR synced IS NULL")
-    List<Hike> getUnsyncedHikes();
-
-    @Query("UPDATE hikes SET synced = 1 WHERE hikeID = :hikeId")
-    void markHikeAsSynced(int hikeId);
-
-    @Query("UPDATE hikes SET isActive = 0, synced = 0, updatedAt = :updatedAt WHERE isActive = 1")
-    void deactivateAllHikes(long updatedAt);
-
-    @Query("UPDATE hikes SET isActive = 1, startTime = :startTime, synced = 0, updatedAt = :updatedAt WHERE hikeID = :hikeId")
-    void startHike(int hikeId, long startTime, long updatedAt);
-
-    @Query("SELECT * FROM hikes WHERE isActive = 1 LIMIT 1")
-    Hike getActiveHike();
-}
-```
+| `deleteAllHikes()` | Clears all hikes from table |
+| `deleteHikesByIds(List<Integer>)` | Bulk delete by list of IDs |
+| `getUnsyncedHikes()` | Returns hikes where synced = false or NULL |
+| `markHikeAsSynced(int)` | Sets synced = true for specified hike |
+| `migrateHikesToUser(Integer, Integer)` | Reassigns hikes from null userId to specified user |
+| `getActiveHike()` | Returns currently active hike (isActive = 1) |
+| `deactivateAllHikes(long)` | Sets isActive = 0 on all hikes |
+| `startHike(int, long, long)` | Sets isActive = 1, startTime for specified hike |
+| `endHike(int, long, long)` | Sets isActive = 0, endTime for specified hike |
 
 ---
 
@@ -1116,12 +1072,18 @@ public interface HikeDao {
 
 | Method | Description |
 |--------|-------------|
-| `insertObservation(Observation)` | Inserts new observation |
-| `updateObservation(Observation)` | Updates existing observation |
+| `insertObservation(Observation)` | Inserts new observation, returns generated ID (OnConflictStrategy.REPLACE) |
+| `insertAllObservations(List<Observation>)` | Bulk insert observations (OnConflictStrategy.REPLACE) |
+| `getAllObservations()` | Returns all observations |
+| `getObservationById(int)` | Returns single observation by primary key |
+| `getObservationsByHikeId(int)` | Returns all observations for a specific hike |
+| `updateObservation(Observation)` | Updates existing observation entity |
 | `deleteObservation(Observation)` | Deletes observation entity |
-| `getObservationsByHikeId(int)` | Returns all observations for a hike |
-| `getUnsyncedObservations()` | Returns observations pending sync |
-| `markObservationAsSynced(int)` | Marks observation as synced |
+| `deleteObservationById(int)` | Deletes observation by primary key |
+| `deleteObservationsByHikeId(int)` | Deletes all observations for a hike |
+| `deleteAllObservations()` | Clears all observations from table |
+| `getUnsyncedObservations()` | Returns observations where synced = false or NULL |
+| `markObservationAsSynced(int)` | Sets synced = true for specified observation |
 
 ---
 
@@ -1131,8 +1093,15 @@ public interface HikeDao {
 
 | Method | Description |
 |--------|-------------|
-| `insertUser(User)` | Inserts new user, returns generated ID |
-| `updateUser(User)` | Updates existing user |
+| `insertUser(User)` | Inserts new user, returns generated ID (OnConflictStrategy.REPLACE) |
+| `getAllUsers()` | Returns all users in database |
+| `getUserById(int)` | Returns user by local primary key |
+| `getUserByEmail(String)` | Returns user by email address (unique constraint) |
+| `authenticateUser(String, String)` | Returns user matching email and password (local auth) |
+| `updateUser(User)` | Updates existing user entity |
+| `deleteUser(User)` | Deletes user entity |
+| `deleteUserById(int)` | Deletes user by primary key |
+| `deleteAllUsers()` | Clears all users from table |
 | `getUserById(int)` | Returns user by local ID |
 | `getUserByFirebaseUid(String)` | Returns user by Firebase UID |
 | `getUserByEmail(String)` | Returns user by email address |
@@ -1263,33 +1232,25 @@ public class Observation {
 
 | Method | Description |
 |--------|-------------|
-| `onCreateViewHolder(ViewGroup, int)` | Inflates item layout |
-| `onBindViewHolder(ViewHolder, int)` | Binds hike data to views |
-| `setSelectionMode(boolean)` | Enables/disables checkbox selection |
-| `toggleSelection(Hike)` | Toggles selection state for a hike |
+| `HikeListAdapter(OnHikeClickListener)` | Constructor with click listener interface |
+| `submitList(List<Hike>)` | Updates adapter data and refreshes view |
+| `setSelectionMode(boolean)` | Enables/disables checkbox selection mode |
+| `clearSelections()` | Clears all selected items |
 | `getSelectedHikeIds()` | Returns Set of selected hike IDs |
-| `setOnSelectionChangedListener(...)` | Sets callback for selection count changes |
+| `setOnSelectionChangedListener(OnSelectionChangedListener)` | Sets callback for selection count changes |
+| `onCreateViewHolder(ViewGroup, int)` | Inflates `item_hike.xml` layout |
+| `onBindViewHolder(ViewHolder, int)` | Binds hike data, handles selection state, sets click listeners |
+| `getItemCount()` | Returns size of hike list |
+| `ViewHolder.bind(Hike)` | Populates name, location, date, difficulty chip, parking icon |
 
-**Selection Mode Implementation**:
+**Interface Definitions**:
 ```java
-private boolean selectionMode = false;
-private final Set<Integer> selectedHikeIds = new HashSet<>();
+public interface OnHikeClickListener {
+    void onHikeClicked(Hike hike);
+}
 
 public interface OnSelectionChangedListener {
     void onSelectionChanged(int selectedCount);
-}
-
-private void toggleSelection(Hike hike) {
-    int id = hike.getHikeID();
-    if (selectedHikeIds.contains(id)) {
-        selectedHikeIds.remove(id);
-    } else {
-        selectedHikeIds.add(id);
-    }
-    if (selectionChangedListener != null) {
-        selectionChangedListener.onSelectionChanged(selectedHikeIds.size());
-    }
-    notifyDataSetChanged();
 }
 ```
 
@@ -1297,29 +1258,26 @@ private void toggleSelection(Hike hike) {
 
 #### 5.6.2 ObservationListAdapter.java (151 lines)
 
-**Purpose**: RecyclerView adapter for displaying observations with DiffUtil for efficient updates.
+**Purpose**: RecyclerView adapter for displaying observations with edit/delete callbacks.
 
 | Method | Description |
 |--------|-------------|
-| `onCreateViewHolder(ViewGroup, int)` | Inflates observation card layout |
-| `onBindViewHolder(ViewHolder, int)` | Binds observation data including image loading |
-| `ObservationViewHolder.bind(...)` | Configures all view elements |
+| `ObservationListAdapter(OnEditClickListener, OnDeleteClickListener)` | Constructor with edit and delete listeners |
+| `submitList(List<Observation>)` | Updates adapter data |
+| `onCreateViewHolder(ViewGroup, int)` | Inflates `item_observation.xml` layout |
+| `onBindViewHolder(ViewHolder, int)` | Binds observation data, handles image loading |
+| `getItemCount()` | Returns size of observation list |
+| `ViewHolder.bind(Observation)` | Populates text, time, comments, location, image preview |
 
-**DiffUtil Implementation**:
+**Interface Definitions**:
 ```java
-private static final DiffUtil.ItemCallback<Observation> DIFF_CALLBACK = 
-    new DiffUtil.ItemCallback<Observation>() {
-        @Override
-        public boolean areItemsTheSame(@NonNull Observation oldItem, @NonNull Observation newItem) {
-            return oldItem.getObservationID() == newItem.getObservationID();
-        }
+public interface OnEditClickListener {
+    void onEditClicked(Observation observation);
+}
 
-        @Override
-        public boolean areContentsTheSame(@NonNull Observation oldItem, @NonNull Observation newItem) {
-            return oldItem.getObservationText().equals(newItem.getObservationText()) &&
-                   oldItem.getTime().equals(newItem.getTime());
-        }
-    };
+public interface OnDeleteClickListener {
+    void onDeleteClicked(Observation observation);
+}
 ```
 
 ---
@@ -1330,21 +1288,17 @@ private static final DiffUtil.ItemCallback<Observation> DIFF_CALLBACK =
 
 | Method | Description |
 |--------|-------------|
-| `onBindViewHolder(ViewHolder, int)` | Binds trail data and calculates estimated time |
-| `calculateEstimatedTime(double, String)` | Estimates hiking duration based on length and difficulty |
+| `NearbyTrailAdapter(OnTrailClickListener)` | Constructor with click listener |
+| `submitList(List<Hike>)` | Updates trail data |
+| `onCreateViewHolder(ViewGroup, int)` | Inflates `item_nearby_trail.xml` layout |
+| `onBindViewHolder(ViewHolder, int)` | Binds trail name, distance, estimated time |
+| `getItemCount()` | Returns size of trail list |
+| `ViewHolder.bind(Hike)` | Calculates and displays estimated hiking duration |
 
-**Time Estimation Logic**:
+**Interface Definition**:
 ```java
-private double calculateEstimatedTime(double length, String difficulty) {
-    // Average hiking speed: Easy = 4 km/h, Medium = 3 km/h, Hard = 2 km/h
-    double speed;
-    switch (difficulty.toLowerCase()) {
-        case "easy": speed = 4.0; break;
-        case "medium": speed = 3.0; break;
-        case "hard": speed = 2.0; break;
-        default: speed = 3.0;
-    }
-    return length / speed;
+public interface OnTrailClickListener {
+    void onTrailClicked(Hike hike);
 }
 ```
 
@@ -1358,13 +1312,13 @@ private double calculateEstimatedTime(double length, String difficulty) {
 
 | Method | Description |
 |--------|-------------|
-| `search(Context, String, String, String, int, SearchCallback)` | Performs semantic search API call |
-| `parseSearchResponse(JSONObject)` | Parses JSON response into SearchResult objects |
+| `search(Context, String, String, String, int, SearchCallback)` | Performs POST request to /search endpoint with Volley |
+| `parseSearchResponse(JSONObject)` | Parses JSON response, extracts results array into List<SearchResult> |
 
-| Inner Class | Description |
-|-------------|-------------|
-| `SearchResult` | Data class holding search result with id, type, score, name, location |
-| `SearchCallback` | Interface with onSuccess(List) and onError(String) methods |
+| Inner Class/Interface | Description |
+|----------------------|-------------|
+| `SearchResult` | Data class with fields: id (String), type (String), score (float), name (String), location (String) |
+| `SearchCallback` | Callback interface with `onSuccess(List<SearchResult>)` and `onError(String)` methods |
 
 **API Call Implementation**:
 ```java
@@ -1400,17 +1354,21 @@ public static void search(Context context, String query, String firebaseUid,
 
 | Method | Description |
 |--------|-------------|
-| `getInstance(Context)` | Returns singleton instance |
-| `syncNow()` | Triggers sync without callback |
-| `syncNow(SyncCallback)` | Triggers sync with completion callback |
-| `syncUserProfile(int, String)` | Uploads user profile to Firestore |
-| `syncHikes(int, String)` | Uploads unsynced hikes |
-| `syncObservations(int, String)` | Uploads unsynced observations |
-| `buildHikePayload(Hike)` | Converts Hike entity to Firestore Map |
-| `buildObservationPayload(Observation)` | Converts Observation entity to Firestore Map |
-| `buildUserPayload(User)` | Converts User entity to Firestore Map |
-| `notifySuccess(SyncCallback)` | Invokes callback on main thread |
-| `notifyFailure(SyncCallback, Exception)` | Invokes error callback on main thread |
+| `getInstance(Context)` | Returns singleton instance with lazy initialisation |
+| `syncNow()` | Triggers sync without callback (fire-and-forget) |
+| `syncNow(SyncCallback)` | Triggers full sync with completion callback |
+| `syncUserProfile(int, String)` | Uploads user profile document to Firestore users collection |
+| `syncHikes(int, String)` | Queries unsynced hikes, uploads to users/{uid}/hikes subcollection |
+| `syncObservations(int, String)` | Queries unsynced observations, uploads to users/{uid}/hikes/{hikeId}/observations |
+| `buildHikePayload(Hike)` | Converts Hike entity to Map<String, Object> for Firestore |
+| `buildObservationPayload(Observation)` | Converts Observation entity to Map<String, Object> |
+| `buildUserPayload(User)` | Converts User entity to Map<String, Object> |
+| `notifySuccess(SyncCallback)` | Posts onSuccess to main thread Handler |
+| `notifyFailure(SyncCallback, Exception)` | Posts onFailure to main thread Handler |
+
+| Interface | Description |
+|-----------|-------------|
+| `SyncCallback` | Callback with `onSuccess()` and `onFailure(Exception)` methods |
 
 **Selective Sync Pattern**:
 ```java
@@ -1446,12 +1404,13 @@ private List<Task<Void>> syncHikes(int userId, String firebaseUid) {
 
 | Method | Description |
 |--------|-------------|
-| `isConfigured()` | Checks if API key is present |
-| `fetchEmbedding(String, String, String, String)` | Requests embedding from Gemini API |
-| `buildPrompt(String, String, String, String)` | Constructs prompt with context |
-| `buildPayload(String)` | Creates JSON request body |
-| `parseEmbedding(String)` | Extracts float[] from API response |
-| `readFully(InputStream)` | Reads HTTP response as String |
+| `GeminiEmbeddingService(String)` | Constructor accepting API key |
+| `isConfigured()` | Returns true if API key is non-null and non-empty |
+| `fetchEmbedding(String, String, String, String)` | Sends POST to Gemini embedContent endpoint, returns float[] |
+| `buildPrompt(String, String, String, String)` | Constructs prompt with firebaseUid, chunkType, chunkId, text context |
+| `buildPayload(String)` | Creates JSON request body with model and content fields |
+| `parseEmbedding(String)` | Extracts embedding.values array from JSON response into float[] |
+| `readFully(InputStream)` | Reads entire InputStream into String using ByteArrayOutputStream |
 
 **Embedding Request**:
 ```java
@@ -1486,14 +1445,16 @@ public float[] fetchEmbedding(String firebaseUid, String chunkType, String chunk
 
 | Method | Description |
 |--------|-------------|
-| `syncUserVectors(int, String)` | Entry point for vector sync operation |
-| `performVectorSync(int, String)` | Processes all user's hikes and observations |
-| `syncHikeVector(String, Hike)` | Generates and stores embedding for single hike |
-| `syncObservationVectors(String, int)` | Generates embeddings for hike's observations |
-| `buildObservationChunk(Observation)` | Constructs text chunk for embedding |
-| `writeEmbeddingToHike(String, int, float[])` | Stores embedding in hike document |
-| `writeEmbeddingToObservation(String, int, int, float[])` | Stores embedding in observation document |
-| `toDoubleList(float[])` | Converts float[] to List<Double> for Firestore |
+| `VectorSyncManager(Context)` | Constructor initialising Firestore, GeminiEmbeddingService, Room DAOs |
+| `syncUserVectors(int, String)` | Public entry point - spawns background thread for performVectorSync |
+| `performVectorSync(int, String)` | Iterates all user's hikes, calls syncHikeVector and syncObservationVectors |
+| `syncHikeVector(String, Hike)` | Generates embedding for hike (name+location+description), writes to Firestore |
+| `syncObservationVectors(String, int)` | Generates embeddings for each observation of a hike |
+| `buildObservationChunk(Observation)` | Concatenates observationText + comments + location into embeddable text |
+| `writeEmbeddingToHike(String, int, float[])` | Stores embedding_vector, embedding_updatedAt, embedding_source in hike document |
+| `writeEmbeddingToObservation(String, int, int, float[])` | Stores embedding fields in observation document |
+| `toDoubleList(float[])` | Converts float[] to List<Double> for Firestore compatibility |
+| `nullSafe(String)` | Returns empty string if input is null |
 
 **Co-located Vector Storage**:
 ```java
@@ -1544,15 +1505,15 @@ public class NetworkUtils {
 
 #### 5.9.2 SearchHelper.java (251 lines)
 
-**Purpose**: Advanced search algorithms including fuzzy matching and relevance scoring.
+**Purpose**: Advanced search algorithms including fuzzy matching, relevance scoring, and multi-field filtering.
 
 | Method | Description |
 |--------|-------------|
-| `fuzzySearch(List<Hike>, String)` | Main search method with relevance scoring |
-| `calculateRelevanceScore(Hike, String)` | Calculates multi-factor relevance score |
-| `levenshteinDistance(String, String)` | Computes edit distance between strings |
-| `isFuzzyMatch(String, String, int)` | Checks if strings match within threshold |
-| `advancedFilter(List<Hike>, ...)` | Applies multiple filter criteria |
+| `fuzzySearch(List<Hike>, String)` | Main search method - filters by fuzzy match, sorts by relevance score descending |
+| `calculateRelevanceScore(Hike, String)` | Multi-tier scoring: exact (100), prefix (50), contains (30), word (10), fuzzy (5-15) |
+| `levenshteinDistance(String, String)` | Dynamic programming implementation of edit distance algorithm |
+| `isFuzzyMatch(String, String, int)` | Returns true if Levenshtein distance ≤ threshold |
+| `advancedFilter(List<Hike>, String, Boolean, Date, Date)` | Applies difficulty, parking, date range filters |
 
 **Levenshtein Distance Implementation**:
 ```java
@@ -1621,15 +1582,23 @@ private static int calculateRelevanceScore(Hike hike, String query) {
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/search` | POST | Performs semantic search against user's hike/observation embeddings |
-| `/health` | GET | Health check endpoint |
+| `/search` | POST | Accepts SearchRequest, returns ranked results based on vector similarity |
+| `/health` | GET | Health check endpoint returning {"status": "healthy"} |
 
 | Function | Description |
 |----------|-------------|
-| `cosine_similarity(vec1, vec2)` | Calculates similarity between two vectors |
-| `fetch_user_hikes(firebase_uid)` | Retrieves hikes with embeddings from Firestore |
-| `generate_query_embedding(query)` | Calls Gemini API for query embedding |
-| `search_hikes(query, firebase_uid, top_k)` | Main search logic with ranking |
+| `cosine_similarity(vec1, vec2)` | Calculates cosine similarity: (A·B)/(||A||×||B||) using numpy |
+| `fetch_user_hikes(firebase_uid)` | Queries Firestore users/{uid}/hikes, returns docs with embedding_vector |
+| `fetch_user_observations(firebase_uid)` | Queries all observations across user's hikes with embeddings |
+| `generate_query_embedding(query)` | Calls Gemini embedContent API to vectorise search query |
+| `search_hikes(query, firebase_uid, top_k)` | Fetches embeddings, generates query vector, ranks by cosine similarity |
+| `search_observations(query, firebase_uid, top_k)` | Same as above but for observation embeddings |
+| `search_all(query, firebase_uid, top_k)` | Combines hike and observation search, returns top_k overall |
+
+| Data Model | Description |
+|------------|-------------|
+| `SearchRequest` | Pydantic model: query (str), firebase_uid (str), search_type (str), top_k (int) |
+| `SearchResult` | Pydantic model: id (str), type (str), score (float), name (str), location (str) |
 
 **Cosine Similarity Implementation**:
 ```python
