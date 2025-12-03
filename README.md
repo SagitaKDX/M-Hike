@@ -508,130 +508,1072 @@ The Python backend currently operates over HTTP. Before production deployment, t
 
 ## Section 5: Code Listing
 
-The following code snippets demonstrate the core logic for Synchronisation, AI Integration, Search Algorithms, and Data Structures.
+This section provides a comprehensive documentation of all source code files in the M-Hike Android application, organised by package. Each file includes its purpose, all functions/methods, and descriptions of critical code.
 
-### 5.1 Selective Synchronisation Logic
+---
 
-This method from `FirebaseSyncManager.java` demonstrates the offline-first sync pattern, querying only unsynced items and pushing them to Firestore.
+### 5.1 Root Package (`com.example.mobilecw`)
 
+#### 5.1.1 MainActivity.java
+
+**Purpose**: Application entry point that redirects to the main dashboard.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises the activity and immediately redirects to `HomeActivity`. Sets the content view and triggers navigation. |
+
+**Critical Code**:
 ```java
-/**
- * Sync unsynced records, invoking the callback when Firebase confirms completion.
- */
-public void syncNow(SyncCallback callback) {
-    executorService.execute(() -> {
-        int userId = SessionManager.getCurrentUserId(appContext);
-        String firebaseUid = SessionManager.getCurrentFirebaseUid(appContext);
-        if (userId == -1 || firebaseUid == null) {
-            Log.d(TAG, "No logged-in user; skipping Firebase sync");
-            notifySuccess(callback);
-            return;
-        }
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
+    
+    // Immediate redirect to home screen
+    Intent intent = new Intent(this, HomeActivity.class);
+    startActivity(intent);
+    finish();  // Remove from back stack
+}
+```
 
-        List<Task<Void>> pendingTasks = new ArrayList<>();
-        pendingTasks.add(syncUserProfile(userId, firebaseUid));
-        pendingTasks.addAll(syncHikes(userId, firebaseUid));
-        pendingTasks.addAll(syncObservations(userId, firebaseUid));
-        pendingTasks.add(vectorSyncManager.syncUserVectors(userId, firebaseUid));
+---
 
-        Tasks.whenAllSuccess(pendingTasks)
-            .addOnSuccessListener(unused -> notifySuccess(callback))
-            .addOnFailureListener(e -> notifyFailure(callback, e));
+### 5.2 Activities Package (`com.example.mobilecw.activities`)
+
+#### 5.2.1 HomeActivity.java (374 lines)
+
+**Purpose**: Main dashboard displaying weather, hiking statistics, active hike status, and nearby trails.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises UI components, sets up bottom navigation, loads all dashboard data |
+| `initViews()` | Binds all XML layout elements to Java fields |
+| `setupBottomNavigation()` | Configures the BottomNavigationView with navigation listeners |
+| `loadActivityStats()` | Queries Room database for total hikes, active hikes, and total distance statistics |
+| `loadNearbyTrails()` | Fetches and displays list of available trails in a horizontal RecyclerView |
+| `loadActiveHike()` | Checks for currently active hike and displays real-time duration |
+| `fetchWeather()` | Makes HTTP request to meteoblue Weather API and updates weather card |
+| `updateWeatherUI(JSONObject)` | Parses weather JSON response and updates UI elements |
+| `navigateToSearch()` | Handles navigation to SearchActivity |
+| `navigateToSettings()` | Handles navigation to SettingsActivity |
+
+**Critical Code** - Weather API Integration:
+```java
+private void fetchWeather() {
+    String url = String.format(
+        "https://my.meteoblue.com/packages/basic-1h?apikey=%s&lat=%.4f&lon=%.4f",
+        BuildConfig.METEOBLUE_API_KEY, latitude, longitude
+    );
+    
+    JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
+        response -> updateWeatherUI(response),
+        error -> Log.e(TAG, "Weather fetch failed", error)
+    );
+    requestQueue.add(request);
+}
+```
+
+---
+
+#### 5.2.2 EnterHikeActivity.java (332 lines)
+
+**Purpose**: Form for creating new hikes or editing existing ones with comprehensive validation.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises form, checks for edit mode, loads existing hike if editing |
+| `initializeViews()` | Binds all form input fields (EditText, Spinner, CheckBox, etc.) |
+| `setupDatePicker()` | Creates and configures MaterialDatePicker for date selection |
+| `setupDifficultySpinner()` | Populates difficulty dropdown (Easy, Medium, Hard) |
+| `setupParkingToggle()` | Configures parking availability switch with parking pass field visibility |
+| `loadHikeForEdit(int)` | Queries database for existing hike and populates form |
+| `populateForm(Hike)` | Fills all form fields with hike data for editing |
+| `validateForm()` | Validates all required fields before submission |
+| `saveHike()` | Creates/updates Hike entity and persists to Room database |
+| `showConfirmationDialog()` | Displays summary dialog before final save |
+
+**Critical Code** - Form Validation:
+```java
+private boolean validateForm() {
+    boolean isValid = true;
+    
+    if (TextUtils.isEmpty(nameInput.getText())) {
+        nameInput.setError("Name is required");
+        isValid = false;
+    }
+    if (TextUtils.isEmpty(locationInput.getText())) {
+        locationInput.setError("Location is required");
+        isValid = false;
+    }
+    if (selectedDate == null) {
+        Toast.makeText(this, "Please select a date", Toast.LENGTH_SHORT).show();
+        isValid = false;
+    }
+    // Additional validation for length > 0, etc.
+    return isValid;
+}
+```
+
+---
+
+#### 5.2.3 HikingListActivity.java (378 lines)
+
+**Purpose**: Displays all hikes in a RecyclerView with search, filter, and multi-select deletion capabilities.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Sets up RecyclerView, adapter, and UI controls |
+| `initViews()` | Binds layout elements including search bar and filter chips |
+| `setupRecyclerView()` | Configures RecyclerView with LinearLayoutManager and adapter |
+| `loadHikes()` | Queries all hikes from Room database for current user |
+| `setupSearch()` | Attaches TextWatcher to search input for real-time filtering |
+| `filterHikes(String)` | Filters displayed hikes based on search query |
+| `toggleSelectionMode()` | Enables/disables multi-select mode for batch deletion |
+| `deleteSelectedHikes()` | Deletes all selected hikes with confirmation dialog |
+| `seedSampleData()` | Creates demo hikes for testing (development feature) |
+| `onHikeClicked(Hike)` | Navigates to HikeDetailActivity for the selected hike |
+| `onEditClicked(Hike)` | Opens EnterHikeActivity in edit mode |
+| `onDeleteClicked(Hike)` | Single hike deletion with confirmation |
+
+**Critical Code** - Multi-Select Deletion:
+```java
+private void deleteSelectedHikes() {
+    new AlertDialog.Builder(this)
+        .setTitle("Delete Selected Hikes")
+        .setMessage("Are you sure you want to delete " + selectedCount + " hikes?")
+        .setPositiveButton("Delete", (dialog, which) -> {
+            executorService.execute(() -> {
+                for (Integer hikeId : adapter.getSelectedHikeIds()) {
+                    hikeDao.deleteHikeById(hikeId);
+                }
+                runOnUiThread(() -> {
+                    toggleSelectionMode();  // Exit selection mode
+                    loadHikes();  // Refresh list
+                });
+            });
+        })
+        .setNegativeButton("Cancel", null)
+        .show();
+}
+```
+
+---
+
+#### 5.2.4 HikeDetailActivity.java (270 lines)
+
+**Purpose**: Displays detailed information about a single hike with start/end hike functionality.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Retrieves hike ID from intent and loads data |
+| `loadHike(int)` | Queries Room database for the specific hike |
+| `populateData(Hike)` | Fills all UI fields with hike information |
+| `setupObservationsButton()` | Configures navigation to observations list |
+| `startHike()` | Begins active hike tracking with timestamp |
+| `endHike()` | Ends active hike and calculates duration |
+| `confirmStartHike()` | Shows confirmation dialog before starting |
+| `syncIfLoggedIn()` | Triggers Firebase sync if user is authenticated |
+| `onEditClicked()` | Opens edit form for this hike |
+| `onDeleteClicked()` | Deletes hike with navigation back to list |
+
+**Critical Code** - Start/End Hike:
+```java
+private void startHike() {
+    confirmStartHike(() -> {
+        executorService.execute(() -> {
+            hikeDao.deactivateAllHikes();  // Ensure only one active hike
+            hikeDao.startHike(hikeId, System.currentTimeMillis(), System.currentTimeMillis());
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Hike started!", Toast.LENGTH_SHORT).show();
+                loadHike(hikeId);  // Refresh UI
+                syncIfLoggedIn();
+            });
+        });
     });
 }
 ```
 
-### 5.2 Room DAO for Unsynced Data Retrieval
+---
 
-The `HikeDao.java` interface exposes queries that support the selective sync mechanism.
+#### 5.2.5 SearchActivity.java (622 lines)
 
+**Purpose**: Advanced search interface with fuzzy search, semantic search, and multi-filter capabilities.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises search UI and mode toggles |
+| `initViews()` | Binds search input, mode selector, and filter controls |
+| `setupSearchModeToggle()` | Configures tabs for Basic/Advanced/Semantic search modes |
+| `performSearch(String)` | Executes fuzzy search using SearchHelper |
+| `performSemanticSearch(String)` | Calls SemanticSearchService for AI-powered search |
+| `performAdvancedSearch()` | Applies multiple filter criteria simultaneously |
+| `applyOtherFilters(List<Hike>, ...)` | Filters by date, difficulty, length, parking |
+| `displayResults(List<Hike>)` | Updates RecyclerView with search results |
+| `showNoResults()` | Displays empty state when no matches found |
+| `clearFilters()` | Resets all filter inputs to default values |
+
+**Critical Code** - Semantic Search Integration:
+```java
+private void performSemanticSearch(String query) {
+    String firebaseUid = SessionManager.getCurrentFirebaseUid(this);
+    if (firebaseUid == null) {
+        showLoginRequiredDialog();
+        return;
+    }
+    
+    showLoading(true);
+    SemanticSearchService.search(this, query, firebaseUid, "hikes", 10,
+        new SemanticSearchService.SearchCallback() {
+            @Override
+            public void onSuccess(List<SearchResult> results) {
+                showLoading(false);
+                matchResultsWithLocalData(results);  // Cross-reference with Room
+            }
+            
+            @Override
+            public void onError(String error) {
+                showLoading(false);
+                Toast.makeText(SearchActivity.this, error, Toast.LENGTH_LONG).show();
+            }
+        });
+}
+```
+
+---
+
+#### 5.2.6 LoginActivity.java (~180 lines)
+
+**Purpose**: Firebase Authentication login with Room database synchronisation.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises login form and Firebase Auth instance |
+| `initViews()` | Binds email/password inputs and login button |
+| `handleLogin()` | Validates credentials and initiates Firebase sign-in |
+| `onLoginSuccess(FirebaseUser)` | Syncs Firebase user with local Room database |
+| `syncUserToRoom(FirebaseUser)` | Creates/updates local User entity with Firebase UID |
+| `navigateToHome()` | Redirects to HomeActivity after successful login |
+| `navigateToSignup()` | Opens SignupActivity for new users |
+
+**Critical Code** - Dual Identity Sync:
+```java
+private void syncUserToRoom(FirebaseUser firebaseUser) {
+    executorService.execute(() -> {
+        User existingUser = userDao.getUserByFirebaseUid(firebaseUser.getUid());
+        if (existingUser != null) {
+            // Update existing user
+            SessionManager.setCurrentUserId(this, existingUser.getUserId());
+        } else {
+            // Create new local user
+            User newUser = new User();
+            newUser.setFirebaseUid(firebaseUser.getUid());
+            newUser.setUserEmail(firebaseUser.getEmail());
+            long userId = userDao.insertUser(newUser);
+            SessionManager.setCurrentUserId(this, (int) userId);
+        }
+        SessionManager.setCurrentFirebaseUid(this, firebaseUser.getUid());
+        runOnUiThread(this::navigateToHome);
+    });
+}
+```
+
+---
+
+#### 5.2.7 SignupActivity.java (234 lines)
+
+**Purpose**: User registration with Firebase Auth and local Room database creation.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises registration form |
+| `initViews()` | Binds all registration input fields |
+| `handleSignup()` | Validates form and creates Firebase account |
+| `validateInputs()` | Checks all fields (email format, password strength, etc.) |
+| `createFirebaseUser(String, String)` | Calls Firebase createUserWithEmailAndPassword |
+| `createLocalUser(FirebaseUser)` | Inserts new User entity into Room database |
+| `setupSession(int, String)` | Stores user IDs in SessionManager |
+| `navigateToHome()` | Redirects after successful registration |
+
+**Critical Code** - Password Validation:
+```java
+private boolean validateInputs() {
+    String password = passwordInput.getText().toString();
+    String confirmPassword = confirmPasswordInput.getText().toString();
+    
+    if (password.length() < 8) {
+        passwordInput.setError("Password must be at least 8 characters");
+        return false;
+    }
+    if (!password.equals(confirmPassword)) {
+        confirmPasswordInput.setError("Passwords do not match");
+        return false;
+    }
+    // Additional validation for email format, etc.
+    return true;
+}
+```
+
+---
+
+#### 5.2.8 SettingsActivity.java (273 lines)
+
+**Purpose**: User settings and logout with secure data cleanup.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises settings UI and user profile section |
+| `loadUserProfile()` | Displays current user's email and name |
+| `handleLogout()` | Orchestrates the secure logout process |
+| `syncBeforeLogout()` | Uploads all pending data to Firebase before clearing |
+| `clearLocalData()` | Wipes all tables from Room database |
+| `clearSession()` | Removes user IDs from SharedPreferences |
+| `navigateToLogin()` | Redirects to LoginActivity after logout |
+
+**Critical Code** - Secure Logout:
+```java
+private void handleLogout() {
+    new AlertDialog.Builder(this)
+        .setTitle("Logout")
+        .setMessage("Your local data will be synced and then cleared. Continue?")
+        .setPositiveButton("Logout", (dialog, which) -> {
+            FirebaseSyncManager.getInstance(this).syncNow(new SyncCallback() {
+                @Override
+                public void onSuccess() {
+                    executorService.execute(() -> {
+                        database.clearAllTables();  // Wipe-on-Logout
+                        SessionManager.clearCurrentUser(SettingsActivity.this);
+                        FirebaseAuth.getInstance().signOut();
+                        runOnUiThread(() -> navigateToLogin());
+                    });
+                }
+                
+                @Override
+                public void onFailure(Exception e) {
+                    // Still logout but warn user data may not be synced
+                    Toast.makeText(SettingsActivity.this, 
+                        "Sync failed - some data may be lost", Toast.LENGTH_LONG).show();
+                }
+            });
+        })
+        .setNegativeButton("Cancel", null)
+        .show();
+}
+```
+
+---
+
+#### 5.2.9 UsersActivity.java (425 lines)
+
+**Purpose**: User profile display with hiking statistics and account management.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises profile UI |
+| `checkLoginStatus()` | Verifies user is logged in, redirects if not |
+| `loadUserData()` | Fetches user profile from Room database |
+| `loadStatistics()` | Calculates and displays hiking statistics |
+| `calculateTotalDistance()` | Sums length of all user's hikes |
+| `calculateTotalDuration()` | Calculates total time spent hiking |
+| `countCompletedHikes()` | Counts hikes with both start and end times |
+| `updateProfileUI(User)` | Populates UI with user information |
+| `navigateToEditProfile()` | Opens profile edit form |
+
+---
+
+#### 5.2.10 ObservationListActivity.java (~150 lines)
+
+**Purpose**: Displays all observations for a specific hike.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Retrieves hike ID and sets up RecyclerView |
+| `loadObservations()` | Queries observations for the parent hike |
+| `openAddObservation()` | Navigates to ObservationFormActivity |
+| `onEditClicked(Observation)` | Opens edit form for observation |
+| `deleteObservation(Observation)` | Removes observation with confirmation |
+| `onBackPressed()` | Returns to parent HikeDetailActivity |
+
+---
+
+#### 5.2.11 ObservationFormActivity.java (435 lines)
+
+**Purpose**: Form for creating/editing observations with camera and GPS integration.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises form with optional pre-populated data |
+| `initViews()` | Binds observation text, comments, location, and image fields |
+| `setupImagePickers()` | Configures camera and gallery image selection |
+| `launchCamera()` | Opens device camera with FileProvider for secure file access |
+| `launchGallery()` | Opens image picker for existing photos |
+| `onActivityResult(int, int, Intent)` | Handles returned camera/gallery images |
+| `getCurrentLocation()` | Uses FusedLocationProviderClient for GPS coordinates |
+| `showDateTimePicker()` | Opens combined date and time selection |
+| `saveObservation()` | Validates and persists observation to Room |
+| `requestLocationPermission()` | Handles runtime permission for ACCESS_FINE_LOCATION |
+
+**Critical Code** - Camera with FileProvider:
+```java
+private void launchCamera() {
+    Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+    if (cameraIntent.resolveActivity(getPackageManager()) != null) {
+        File photoFile = createImageFile();
+        if (photoFile != null) {
+            currentPhotoPath = photoFile.getAbsolutePath();
+            Uri photoUri = FileProvider.getUriForFile(this,
+                getPackageName() + ".fileprovider", photoFile);
+            cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+            startActivityForResult(cameraIntent, REQUEST_CAMERA);
+        }
+    }
+}
+```
+
+**Critical Code** - GPS Location:
+```java
+private void getCurrentLocation() {
+    if (ActivityCompat.checkSelfPermission(this, 
+            Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        requestLocationPermission();
+        return;
+    }
+    
+    fusedLocationClient.getLastLocation()
+        .addOnSuccessListener(location -> {
+            if (location != null) {
+                String coords = String.format(Locale.US, 
+                    "%.6f, %.6f", location.getLatitude(), location.getLongitude());
+                locationInput.setText(coords);
+            }
+        });
+}
+```
+
+---
+
+### 5.3 Auth Package (`com.example.mobilecw.auth`)
+
+#### 5.3.1 SessionManager.java
+
+**Purpose**: Manages user session state using SharedPreferences for the dual-identity system.
+
+| Method | Description |
+|--------|-------------|
+| `getCurrentUserId(Context)` | Returns local Room user ID from SharedPreferences |
+| `setCurrentUserId(Context, int)` | Stores local Room user ID |
+| `getCurrentFirebaseUid(Context)` | Returns Firebase UID string |
+| `setCurrentFirebaseUid(Context, String)` | Stores Firebase UID |
+| `clearCurrentUser(Context)` | Removes all session data (logout) |
+| `isLoggedIn(Context)` | Checks if valid session exists |
+
+**Critical Code**:
+```java
+public class SessionManager {
+    private static final String PREFS_NAME = "MHikeSession";
+    private static final String KEY_USER_ID = "user_id";
+    private static final String KEY_FIREBASE_UID = "firebase_uid";
+
+    public static int getCurrentUserId(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getInt(KEY_USER_ID, -1);  // -1 indicates no user
+    }
+
+    public static boolean isLoggedIn(Context context) {
+        return getCurrentUserId(context) != -1 && getCurrentFirebaseUid(context) != null;
+    }
+
+    public static void clearCurrentUser(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+            .remove(KEY_USER_ID)
+            .remove(KEY_FIREBASE_UID)
+            .apply();
+    }
+}
+```
+
+---
+
+### 5.4 Database Package (`com.example.mobilecw.database`)
+
+#### 5.4.1 AppDatabase.java
+
+**Purpose**: Room database singleton with DAO access methods.
+
+| Method | Description |
+|--------|-------------|
+| `getDatabase(Context)` | Returns singleton database instance (lazy initialisation) |
+| `hikeDao()` | Abstract method returning HikeDao interface |
+| `observationDao()` | Abstract method returning ObservationDao interface |
+| `userDao()` | Abstract method returning UserDao interface |
+
+**Critical Code**:
+```java
+@Database(entities = {Hike.class, Observation.class, User.class}, 
+          version = 8, 
+          exportSchema = false)
+@TypeConverters({Converters.class})
+public abstract class AppDatabase extends RoomDatabase {
+    private static volatile AppDatabase INSTANCE;
+
+    public static AppDatabase getDatabase(Context context) {
+        if (INSTANCE == null) {
+            synchronized (AppDatabase.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = Room.databaseBuilder(
+                        context.getApplicationContext(),
+                        AppDatabase.class, "mhike_database"
+                    )
+                    .fallbackToDestructiveMigration()
+                    .build();
+                }
+            }
+        }
+        return INSTANCE;
+    }
+
+    public abstract HikeDao hikeDao();
+    public abstract ObservationDao observationDao();
+    public abstract UserDao userDao();
+}
+```
+
+---
+
+#### 5.4.2 Converters.java
+
+**Purpose**: Type converters for Room to handle Date ↔ Long conversions.
+
+| Method | Description |
+|--------|-------------|
+| `fromTimestamp(Long)` | Converts Long (milliseconds) to Date object |
+| `dateToTimestamp(Date)` | Converts Date object to Long (milliseconds) |
+
+**Critical Code**:
+```java
+public class Converters {
+    @TypeConverter
+    public static Date fromTimestamp(Long value) {
+        return value == null ? null : new Date(value);
+    }
+
+    @TypeConverter
+    public static Long dateToTimestamp(Date date) {
+        return date == null ? null : date.getTime();
+    }
+}
+```
+
+---
+
+#### 5.4.3 HikeDao.java (Data Access Object)
+
+**Purpose**: Room DAO interface for all hike database operations.
+
+| Method | Description |
+|--------|-------------|
+| `insertHike(Hike)` | Inserts new hike, returns generated ID |
+| `updateHike(Hike)` | Updates existing hike |
+| `deleteHike(Hike)` | Deletes hike entity |
+| `deleteHikeById(int)` | Deletes hike by primary key |
+| `getAllHikes()` | Returns all hikes ordered by date descending |
+| `getHikesByUserId(Integer)` | Returns hikes for specific user |
+| `getHikeById(int)` | Returns single hike by ID |
+| `getUnsyncedHikes()` | Returns hikes where synced = false (for sync) |
+| `markHikeAsSynced(int)` | Sets synced = true after successful upload |
+| `getActiveHike()` | Returns currently active hike (if any) |
+| `startHike(int, long, long)` | Activates hike with start timestamp |
+| `endHike(int, long, long)` | Deactivates hike with end timestamp |
+| `deactivateAllHikes()` | Sets isActive = false on all hikes |
+| `searchHikes(String)` | Searches hikes by name or location (LIKE query) |
+
+**Critical Code**:
 ```java
 @Dao
 public interface HikeDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    long insertHike(Hike hike);
-
-    // Query only unsynced hikes for bandwidth efficiency
     @Query("SELECT * FROM hikes WHERE synced = 0 OR synced IS NULL")
     List<Hike> getUnsyncedHikes();
 
     @Query("UPDATE hikes SET synced = 1 WHERE hikeID = :hikeId")
     void markHikeAsSynced(int hikeId);
 
-    // User-scoped queries for data isolation
-    @Query("SELECT * FROM hikes WHERE userId = :userId ORDER BY date DESC")
-    List<Hike> getHikesByUserId(Integer userId);
+    @Query("UPDATE hikes SET isActive = 0, synced = 0, updatedAt = :updatedAt WHERE isActive = 1")
+    void deactivateAllHikes(long updatedAt);
+
+    @Query("UPDATE hikes SET isActive = 1, startTime = :startTime, synced = 0, updatedAt = :updatedAt WHERE hikeID = :hikeId")
+    void startHike(int hikeId, long startTime, long updatedAt);
+
+    @Query("SELECT * FROM hikes WHERE isActive = 1 LIMIT 1")
+    Hike getActiveHike();
 }
 ```
 
-### 5.3 Gemini Embedding Service
+---
 
-The `GeminiEmbeddingService.java` class handles communication with the Gemini API to generate vector embeddings for semantic search.
+#### 5.4.4 ObservationDao.java
 
+**Purpose**: Room DAO interface for observation database operations.
+
+| Method | Description |
+|--------|-------------|
+| `insertObservation(Observation)` | Inserts new observation |
+| `updateObservation(Observation)` | Updates existing observation |
+| `deleteObservation(Observation)` | Deletes observation entity |
+| `getObservationsByHikeId(int)` | Returns all observations for a hike |
+| `getUnsyncedObservations()` | Returns observations pending sync |
+| `markObservationAsSynced(int)` | Marks observation as synced |
+
+---
+
+#### 5.4.5 UserDao.java
+
+**Purpose**: Room DAO interface for user database operations.
+
+| Method | Description |
+|--------|-------------|
+| `insertUser(User)` | Inserts new user, returns generated ID |
+| `updateUser(User)` | Updates existing user |
+| `getUserById(int)` | Returns user by local ID |
+| `getUserByFirebaseUid(String)` | Returns user by Firebase UID |
+| `getUserByEmail(String)` | Returns user by email address |
+
+---
+
+### 5.5 Entities Package (`com.example.mobilecw.database.entities`)
+
+#### 5.5.1 Hike.java
+
+**Purpose**: Room entity representing a hiking trail record.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hikeID` | int (PK) | Auto-generated primary key |
+| `name` | String | Trail name (required) |
+| `location` | String | Trail location (required) |
+| `date` | Date | Hike date |
+| `parkingAvailable` | boolean | Parking availability flag |
+| `length` | double | Trail length in kilometres |
+| `difficulty` | String | Easy/Medium/Hard |
+| `description` | String | Optional description |
+| `purchaseParkingPass` | String | Parking pass URL if applicable |
+| `userId` | Integer (FK) | Owner's local user ID |
+| `isActive` | Boolean | Currently active hike flag |
+| `startTime` | Long | Hike start timestamp |
+| `endTime` | Long | Hike end timestamp |
+| `createdAt` | Long | Record creation timestamp |
+| `updatedAt` | Long | Last modification timestamp |
+| `synced` | Boolean | Cloud sync status |
+
+**Entity Definition**:
 ```java
-/**
- * Requests an embedding for the provided text chunk.
- * Must be called from a background thread.
- */
-public float[] fetchEmbedding(String firebaseUid, String chunkType,
-                               String chunkId, String text) {
+@Entity(tableName = "hikes", indices = {@Index("hikeID")})
+public class Hike {
+    @PrimaryKey(autoGenerate = true)
+    private int hikeID;
+    
+    private String name;
+    private String location;
+    private Date date;
+    private boolean parkingAvailable;
+    private double length;
+    private String difficulty;
+    private String description;
+    private String purchaseParkingPass;
+    private Integer userId;
+    private Boolean isActive;
+    private Long startTime;
+    private Long endTime;
+    private Long createdAt;
+    private Long updatedAt;
+    private Boolean synced;
+    
+    // Getters and setters for all fields
+}
+```
+
+---
+
+#### 5.5.2 Observation.java
+
+**Purpose**: Room entity representing observations made during a hike.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `observationID` | int (PK) | Auto-generated primary key |
+| `hikeId` | int (FK) | Parent hike ID (CASCADE delete) |
+| `observationText` | String | Observation description (required) |
+| `time` | Date | Observation timestamp |
+| `comments` | String | Additional comments |
+| `location` | String | GPS coordinates or location name |
+| `picture` | String | File path to attached image |
+| `createdAt` | Long | Record creation timestamp |
+| `updatedAt` | Long | Last modification timestamp |
+| `synced` | Boolean | Cloud sync status |
+
+**Entity Definition with Foreign Key**:
+```java
+@Entity(tableName = "observations",
+        foreignKeys = @ForeignKey(
+                entity = Hike.class,
+                parentColumns = "hikeID",
+                childColumns = "hikeId",
+                onDelete = ForeignKey.CASCADE  // Auto-delete observations when hike deleted
+        ),
+        indices = {@Index("hikeId")})
+public class Observation {
+    @PrimaryKey(autoGenerate = true)
+    private int observationID;
+    
+    private int hikeId;
+    private String observationText;
+    private Date time;
+    private String comments;
+    private String location;
+    private String picture;
+    private Long createdAt;
+    private Long updatedAt;
+    private Boolean synced;
+}
+```
+
+---
+
+#### 5.5.3 User.java
+
+**Purpose**: Room entity representing application users with dual-identity support.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `userId` | int (PK) | Local auto-generated ID |
+| `firebaseUid` | String (UK) | Firebase Authentication UID |
+| `userName` | String | Display name |
+| `userEmail` | String (UK) | Email address (unique) |
+| `userPassword` | String | Hashed password (local auth fallback) |
+| `userPhone` | String | Phone number (optional) |
+| `createdAt` | Long | Account creation timestamp |
+| `updatedAt` | Long | Last update timestamp |
+
+---
+
+### 5.6 Adapters Package (`com.example.mobilecw.adapters`)
+
+#### 5.6.1 HikeListAdapter.java (~200 lines)
+
+**Purpose**: RecyclerView adapter with selection mode support for multi-delete operations.
+
+| Method | Description |
+|--------|-------------|
+| `onCreateViewHolder(ViewGroup, int)` | Inflates item layout |
+| `onBindViewHolder(ViewHolder, int)` | Binds hike data to views |
+| `setSelectionMode(boolean)` | Enables/disables checkbox selection |
+| `toggleSelection(Hike)` | Toggles selection state for a hike |
+| `getSelectedHikeIds()` | Returns Set of selected hike IDs |
+| `setOnSelectionChangedListener(...)` | Sets callback for selection count changes |
+
+**Selection Mode Implementation**:
+```java
+private boolean selectionMode = false;
+private final Set<Integer> selectedHikeIds = new HashSet<>();
+
+public interface OnSelectionChangedListener {
+    void onSelectionChanged(int selectedCount);
+}
+
+private void toggleSelection(Hike hike) {
+    int id = hike.getHikeID();
+    if (selectedHikeIds.contains(id)) {
+        selectedHikeIds.remove(id);
+    } else {
+        selectedHikeIds.add(id);
+    }
+    if (selectionChangedListener != null) {
+        selectionChangedListener.onSelectionChanged(selectedHikeIds.size());
+    }
+    notifyDataSetChanged();
+}
+```
+
+---
+
+#### 5.6.2 ObservationListAdapter.java (151 lines)
+
+**Purpose**: RecyclerView adapter for displaying observations with DiffUtil for efficient updates.
+
+| Method | Description |
+|--------|-------------|
+| `onCreateViewHolder(ViewGroup, int)` | Inflates observation card layout |
+| `onBindViewHolder(ViewHolder, int)` | Binds observation data including image loading |
+| `ObservationViewHolder.bind(...)` | Configures all view elements |
+
+**DiffUtil Implementation**:
+```java
+private static final DiffUtil.ItemCallback<Observation> DIFF_CALLBACK = 
+    new DiffUtil.ItemCallback<Observation>() {
+        @Override
+        public boolean areItemsTheSame(@NonNull Observation oldItem, @NonNull Observation newItem) {
+            return oldItem.getObservationID() == newItem.getObservationID();
+        }
+
+        @Override
+        public boolean areContentsTheSame(@NonNull Observation oldItem, @NonNull Observation newItem) {
+            return oldItem.getObservationText().equals(newItem.getObservationText()) &&
+                   oldItem.getTime().equals(newItem.getTime());
+        }
+    };
+```
+
+---
+
+#### 5.6.3 NearbyTrailAdapter.java (107 lines)
+
+**Purpose**: Horizontal RecyclerView adapter for displaying nearby trails on home screen.
+
+| Method | Description |
+|--------|-------------|
+| `onBindViewHolder(ViewHolder, int)` | Binds trail data and calculates estimated time |
+| `calculateEstimatedTime(double, String)` | Estimates hiking duration based on length and difficulty |
+
+**Time Estimation Logic**:
+```java
+private double calculateEstimatedTime(double length, String difficulty) {
+    // Average hiking speed: Easy = 4 km/h, Medium = 3 km/h, Hard = 2 km/h
+    double speed;
+    switch (difficulty.toLowerCase()) {
+        case "easy": speed = 4.0; break;
+        case "medium": speed = 3.0; break;
+        case "hard": speed = 2.0; break;
+        default: speed = 3.0;
+    }
+    return length / speed;
+}
+```
+
+---
+
+### 5.7 Services Package (`com.example.mobilecw.services`)
+
+#### 5.7.1 SemanticSearchService.java (151 lines)
+
+**Purpose**: HTTP client for communicating with the Python FastAPI semantic search backend.
+
+| Method | Description |
+|--------|-------------|
+| `search(Context, String, String, String, int, SearchCallback)` | Performs semantic search API call |
+| `parseSearchResponse(JSONObject)` | Parses JSON response into SearchResult objects |
+
+| Inner Class | Description |
+|-------------|-------------|
+| `SearchResult` | Data class holding search result with id, type, score, name, location |
+| `SearchCallback` | Interface with onSuccess(List) and onError(String) methods |
+
+**API Call Implementation**:
+```java
+public static void search(Context context, String query, String firebaseUid, 
+                         String searchType, int topK, SearchCallback callback) {
+    RequestQueue queue = Volley.newRequestQueue(context.getApplicationContext());
+    String url = BASE_URL + "/search";
+
+    JSONObject requestBody = new JSONObject();
+    requestBody.put("query", query);
+    requestBody.put("firebase_uid", firebaseUid);
+    requestBody.put("search_type", searchType);
+    requestBody.put("top_k", topK);
+    
+    JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, requestBody,
+        response -> {
+            List<SearchResult> results = parseSearchResponse(response);
+            callback.onSuccess(results);
+        },
+        error -> callback.onError("Search failed: " + error.getMessage())
+    );
+    queue.add(request);
+}
+```
+
+---
+
+### 5.8 Sync Package (`com.example.mobilecw.sync`)
+
+#### 5.8.1 FirebaseSyncManager.java (261 lines)
+
+**Purpose**: Orchestrates offline-first synchronisation between Room and Cloud Firestore.
+
+| Method | Description |
+|--------|-------------|
+| `getInstance(Context)` | Returns singleton instance |
+| `syncNow()` | Triggers sync without callback |
+| `syncNow(SyncCallback)` | Triggers sync with completion callback |
+| `syncUserProfile(int, String)` | Uploads user profile to Firestore |
+| `syncHikes(int, String)` | Uploads unsynced hikes |
+| `syncObservations(int, String)` | Uploads unsynced observations |
+| `buildHikePayload(Hike)` | Converts Hike entity to Firestore Map |
+| `buildObservationPayload(Observation)` | Converts Observation entity to Firestore Map |
+| `buildUserPayload(User)` | Converts User entity to Firestore Map |
+| `notifySuccess(SyncCallback)` | Invokes callback on main thread |
+| `notifyFailure(SyncCallback, Exception)` | Invokes error callback on main thread |
+
+**Selective Sync Pattern**:
+```java
+private List<Task<Void>> syncHikes(int userId, String firebaseUid) {
+    List<Task<Void>> tasks = new ArrayList<>();
+    List<Hike> unsyncedHikes = hikeDao.getUnsyncedHikes();  // WHERE synced = false
+    
+    for (Hike hike : unsyncedHikes) {
+        if (hike.getUserId() == null || hike.getUserId() != userId) {
+            continue;  // Only sync current user's hikes
+        }
+
+        Map<String, Object> payload = buildHikePayload(hike);
+        Task<Void> task = firestore.collection("users")
+                .document(firebaseUid)
+                .collection("hikes")
+                .document(String.valueOf(hike.getHikeID()))
+                .set(payload, SetOptions.merge())
+                .addOnSuccessListener(unused -> 
+                    executorService.execute(() -> hikeDao.markHikeAsSynced(hike.getHikeID()))
+                );
+        tasks.add(task);
+    }
+    return tasks;
+}
+```
+
+---
+
+#### 5.8.2 GeminiEmbeddingService.java (156 lines)
+
+**Purpose**: HTTP client for Gemini API to generate text embeddings for semantic search.
+
+| Method | Description |
+|--------|-------------|
+| `isConfigured()` | Checks if API key is present |
+| `fetchEmbedding(String, String, String, String)` | Requests embedding from Gemini API |
+| `buildPrompt(String, String, String, String)` | Constructs prompt with context |
+| `buildPayload(String)` | Creates JSON request body |
+| `parseEmbedding(String)` | Extracts float[] from API response |
+| `readFully(InputStream)` | Reads HTTP response as String |
+
+**Embedding Request**:
+```java
+public float[] fetchEmbedding(String firebaseUid, String chunkType, String chunkId, String text) {
     if (!isConfigured() || TextUtils.isEmpty(text)) {
         return null;
     }
 
     String prompt = buildPrompt(firebaseUid, chunkType, chunkId, text);
+    
+    URL url = new URL(ENDPOINT + "?key=" + apiKey);
+    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+    connection.setRequestMethod("POST");
+    connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+    connection.setDoOutput(true);
 
-    try {
-        URL url = new URL(ENDPOINT + "?key=" + apiKey);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("POST");
-        connection.setRequestProperty("Content-Type", "application/json");
-        connection.setDoOutput(true);
+    byte[] payloadBytes = buildPayload(prompt).getBytes(StandardCharsets.UTF_8);
+    connection.getOutputStream().write(payloadBytes);
 
-        // Send request and parse response
-        byte[] payload = buildPayload(prompt).getBytes(StandardCharsets.UTF_8);
-        connection.getOutputStream().write(payload);
-
-        if (connection.getResponseCode() == 200) {
-            return parseEmbedding(readFully(connection.getInputStream()));
-        }
-    } catch (IOException | JSONException e) {
-        Log.e(TAG, "Failed to fetch embedding", e);
+    if (connection.getResponseCode() == 200) {
+        return parseEmbedding(readFully(connection.getInputStream()));
     }
     return null;
 }
 ```
 
-### 5.4 Levenshtein Distance Algorithm for Fuzzy Search
+---
 
-The `SearchHelper.java` utility implements the Levenshtein distance algorithm (Navarro, 2001) for typo-tolerant searching. For a detailed visual explanation of how this algorithm works, including the dynamic programming matrix visualisation, see **Section 2.5: Fuzzy Search Algorithm**.
+#### 5.8.3 VectorSyncManager.java (206 lines)
 
+**Purpose**: Generates and stores vector embeddings for hikes and observations in Firestore.
+
+| Method | Description |
+|--------|-------------|
+| `syncUserVectors(int, String)` | Entry point for vector sync operation |
+| `performVectorSync(int, String)` | Processes all user's hikes and observations |
+| `syncHikeVector(String, Hike)` | Generates and stores embedding for single hike |
+| `syncObservationVectors(String, int)` | Generates embeddings for hike's observations |
+| `buildObservationChunk(Observation)` | Constructs text chunk for embedding |
+| `writeEmbeddingToHike(String, int, float[])` | Stores embedding in hike document |
+| `writeEmbeddingToObservation(String, int, int, float[])` | Stores embedding in observation document |
+| `toDoubleList(float[])` | Converts float[] to List<Double> for Firestore |
+
+**Co-located Vector Storage**:
 ```java
-/**
- * Calculate Levenshtein distance (edit distance) between two strings.
- * Measures how many single-character edits are needed to transform one string into another.
- */
+private void writeEmbeddingToHike(String firebaseUid, int hikeId, float[] embedding) {
+    Map<String, Object> update = new HashMap<>();
+    update.put("embedding_vector", toDoubleList(embedding));
+    update.put("embedding_updatedAt", System.currentTimeMillis());
+    update.put("embedding_source", "gemini-2.5-flash");
+
+    Task<Void> writeTask = firestore.collection("users")
+            .document(firebaseUid)
+            .collection("hikes")
+            .document(String.valueOf(hikeId))
+            .set(update, SetOptions.merge());
+    Tasks.await(writeTask);
+}
+```
+
+---
+
+### 5.9 Utils Package (`com.example.mobilecw.utils`)
+
+#### 5.9.1 NetworkUtils.java (27 lines)
+
+**Purpose**: Simple utility for checking network connectivity status.
+
+| Method | Description |
+|--------|-------------|
+| `isOnline(Context)` | Returns true if device has active network connection |
+
+**Implementation**:
+```java
+public class NetworkUtils {
+    public static boolean isOnline(Context context) {
+        if (context == null) return false;
+        
+        ConnectivityManager cm = (ConnectivityManager) 
+            context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return false;
+        
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        return activeNetwork != null && activeNetwork.isConnected();
+    }
+}
+```
+
+---
+
+#### 5.9.2 SearchHelper.java (251 lines)
+
+**Purpose**: Advanced search algorithms including fuzzy matching and relevance scoring.
+
+| Method | Description |
+|--------|-------------|
+| `fuzzySearch(List<Hike>, String)` | Main search method with relevance scoring |
+| `calculateRelevanceScore(Hike, String)` | Calculates multi-factor relevance score |
+| `levenshteinDistance(String, String)` | Computes edit distance between strings |
+| `isFuzzyMatch(String, String, int)` | Checks if strings match within threshold |
+| `advancedFilter(List<Hike>, ...)` | Applies multiple filter criteria |
+
+**Levenshtein Distance Implementation**:
+```java
 public static int levenshteinDistance(String s1, String s2) {
     int len1 = s1.length();
     int len2 = s2.length();
-
+    
     if (len1 == 0) return len2;
     if (len2 == 0) return len1;
-
-    // Dynamic programming matrix
+    
     int[][] dp = new int[len1 + 1][len2 + 1];
-
-    // Initialize base cases
+    
     for (int i = 0; i <= len1; i++) dp[i][0] = i;
     for (int j = 0; j <= len2; j++) dp[0][j] = j;
-
-    // Fill the matrix
+    
     for (int i = 1; i <= len1; i++) {
         for (int j = 1; j <= len2; j++) {
-            int cost = (s1.charAt(i-1) == s2.charAt(j-1)) ? 0 : 1;
+            int cost = (s1.charAt(i - 1) == s2.charAt(j - 1)) ? 0 : 1;
             dp[i][j] = Math.min(
-                Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1),  // deletion, insertion
-                dp[i-1][j-1] + cost                         // substitution
+                Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                dp[i - 1][j - 1] + cost
             );
         }
     }
@@ -639,17 +1581,62 @@ public static int levenshteinDistance(String s1, String s2) {
 }
 ```
 
-### 5.5 Cosine Similarity for Semantic Search (Python Backend)
+**Relevance Scoring Tiers**:
+```java
+private static int calculateRelevanceScore(Hike hike, String query) {
+    int score = 0;
+    String name = hike.getName().toLowerCase();
+    
+    // Tier 1: Exact match (100 points)
+    if (name.equals(query)) score += 100;
+    
+    // Tier 2: Prefix match (50 points)
+    if (name.startsWith(query)) score += 50;
+    
+    // Tier 3: Contains match (30 points)
+    if (name.contains(query)) score += 30;
+    
+    // Tier 4: Word-by-word (10 points per word)
+    for (String word : query.split("\\s+")) {
+        if (name.contains(word)) score += 10;
+    }
+    
+    // Tier 5: Fuzzy match (5-15 points based on distance)
+    int distance = levenshteinDistance(name, query);
+    if (distance <= FUZZY_THRESHOLD) {
+        score += (FUZZY_THRESHOLD - distance) * 5;
+    }
+    
+    return score;
+}
+```
 
-The `main.py` FastAPI backend calculates cosine similarity between query embeddings and stored document vectors.
+---
 
+### 5.10 Backend (Python FastAPI)
+
+#### 5.10.1 main.py
+
+**Purpose**: FastAPI server providing semantic search API with cosine similarity calculation.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/search` | POST | Performs semantic search against user's hike/observation embeddings |
+| `/health` | GET | Health check endpoint |
+
+| Function | Description |
+|----------|-------------|
+| `cosine_similarity(vec1, vec2)` | Calculates similarity between two vectors |
+| `fetch_user_hikes(firebase_uid)` | Retrieves hikes with embeddings from Firestore |
+| `generate_query_embedding(query)` | Calls Gemini API for query embedding |
+| `search_hikes(query, firebase_uid, top_k)` | Main search logic with ranking |
+
+**Cosine Similarity Implementation**:
 ```python
 def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """
     Calculate cosine similarity between two vectors.
-
     Formula: similarity = (A · B) / (||A|| × ||B||)
-    Returns value between -1 and 1 (higher = more similar)
     """
     vec1 = np.array(vec1)
     vec2 = np.array(vec2)
@@ -662,39 +1649,6 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
         return 0.0
 
     return float(dot_product / (norm1 * norm2))
-```
-
-### 5.6 Hike Entity Structure
-
-The `Hike.java` entity demonstrates the Room entity definition with sync tracking fields.
-
-```java
-@Entity(tableName = "hikes", indices = {@Index("hikeID")})
-public class Hike {
-    @PrimaryKey(autoGenerate = true)
-    private int hikeID;
-
-    private String name;
-    private String location;
-    private Date date;
-    private boolean parkingAvailable;
-    private double length;
-    private String difficulty;
-    private String description;
-
-    // Foreign key to user (nullable for non-registered users)
-    private Integer userId;
-
-    // Active hike tracking
-    private Boolean isActive;
-    private Long startTime;
-    private Long endTime;
-
-    // Cloud sync metadata
-    private Long createdAt;
-    private Long updatedAt;
-    private Boolean synced;  // false = pending upload
-}
 ```
 
 ---
