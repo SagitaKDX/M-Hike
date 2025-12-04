@@ -60,6 +60,12 @@
         <activity
             android:name=".activities.SettingsActivity"
             android:exported="false" />
+        <activity
+            android:name=".activities.MapPickerActivity"
+            android:exported="false"
+            android:label="Select Location" />
+
+        <!-- Mapsforge uses OpenStreetMap - no API key required -->
     </application>
 
 </manifest>

@@ -71,7 +71,7 @@ The following table confirms the status of all core (A-F) and additional (G) fea
 | **D) Search** | ✅ Fully Completed | Implemented a **dual-layer search system**: (1) **Local Fuzzy Search** using the Levenshtein distance algorithm (Navarro, 2001) to handle typographical errors (e.g., "Snowden" matches "Snowdon"); (2) **Semantic Search** via the Python backend using Gemini embeddings and cosine similarity for context-aware retrieval. Additional filter logic supports date range, difficulty, length, and parking availability. |
 | **E) Xamarin/MAUI Prototype** | ✅ Fully Completed | Cross-platform prototype created using Xamarin Forms to demonstrate hybrid development capabilities for the entry interface. |
 | **F) Xamarin/MAUI Persistence** | ✅ Fully Completed | Implemented local SQLite storage within the Xamarin environment to mirror the native Android persistence logic. |
-| **G) Additional Features** | ✅ Fully Completed | **(1) AI Semantic Search**: Integrated Gemini 2.5 Flash embeddings via a Python FastAPI backend for context-aware search using cosine similarity (Manning, Raghavan and Schütze, 2008). **(2) Robust Offline Sync**: A `FirebaseSyncManager` that queues and uploads data automatically when connectivity is restored. **(3) Security**: "Wipe-on-Logout" feature (`SettingsActivity.java`) clears all local data to ensure privacy on shared devices. **(4) Weather API**: Real-time integration with the meteoblue Weather API for trail condition awareness. |
+| **G) Additional Features** | ✅ Fully Completed | **(1) AI Semantic Search**: Integrated Gemini 2.5 Flash embeddings via a Python FastAPI backend for context-aware search using cosine similarity (Manning, Raghavan and Schütze, 2008). **(2) Robust Offline Sync**: A `FirebaseSyncManager` that queues and uploads data automatically when connectivity is restored. **(3) Security**: "Wipe-on-Logout" feature (`SettingsActivity.java`) clears all local data to ensure privacy on shared devices. **(4) Weather API**: Real-time integration with the meteoblue Weather API for trail condition awareness. **(5) Embedded Map with Pin-Drop**: Interactive OpenStreetMap integration via Mapsforge library allowing users to visually select hike locations by tapping on the map (no API key required). |
 
 ---
 
@@ -420,6 +420,49 @@ The Firebase integration also enabled **user authentication**, adding a security
 Beyond simple data entry, the application tracks **active hikes** in real-time. Users can tap "Start Hike" to begin tracking, and the home screen displays elapsed duration. This transforms the application from a passive data store into an active hiking companion.
 
 The feature required careful state management to ensure only one hike can be active at a time, and that the start/end timestamps are accurately recorded.
+
+#### 8. Embedded Map with Pin-Drop Location Selection
+
+A key usability enhancement was the integration of an **interactive embedded map** allowing users to visually select hike locations by tapping on the map. This feature was implemented using the **Mapsforge library** with OpenStreetMap tiles.
+
+**Technology Decision: Mapsforge over Google Maps SDK**
+
+The initial consideration was Google Maps SDK, which offers excellent features but requires:
+- A valid API key with billing enabled
+- Potential costs for high usage
+- Dependency on Google Play Services
+
+Instead, **Mapsforge** (v0.21.0) was selected as an open-source alternative that:
+- Requires **no API key** or billing account
+- Uses free **OpenStreetMap** data (community-maintained)
+- Supports offline map rendering with downloaded `.map` files
+- Has a smaller footprint compared to Google Play Services
+
+The implementation in `MapPickerActivity.java` includes:
+- **TileDownloadLayer** with OpenStreetMapMapnik tiles for online rendering
+- **Custom marker drawing** using Mapsforge's graphics API (red pin with white border)
+- **Touch detection** to differentiate between taps and drag gestures
+- **Geocoding** via Android's `Geocoder` to resolve coordinates to readable addresses
+- **FusedLocationProviderClient** integration to centre the map on the user's current location
+
+```java
+// Mapsforge tap detection for pin placement
+mapView.setOnTouchListener(new View.OnTouchListener() {
+    @Override
+    public boolean onTouch(View v, MotionEvent event) {
+        if (event.getAction() == MotionEvent.ACTION_UP) {
+            LatLong tapLatLong = mapView.getMapViewProjection()
+                    .fromPixels(event.getX(), event.getY());
+            if (tapLatLong != null) {
+                placeMarker(tapLatLong);
+            }
+        }
+        return false;
+    }
+});
+```
+
+This approach demonstrates the value of evaluating open-source alternatives before committing to proprietary solutions, particularly for educational projects where API costs and key management can be prohibitive.
 
 ### Lessons Learned
 
@@ -865,17 +908,18 @@ protected void onDestroy() {
 
 ---
 
-#### 5.2.2 EnterHikeActivity.java (332 lines)
+#### 5.2.2 EnterHikeActivity.java (373 lines)
 
-**Purpose**: Form for creating new hikes or editing existing ones with comprehensive validation.
+**Purpose**: Form for creating new hikes or editing existing ones with comprehensive validation and embedded map location picker.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate(Bundle)` | Initialises database, executor, date format, views, spinner, date picker, click listeners; checks for edit mode from intent |
-| `initializeViews()` | Binds all form input fields (EditText, Spinner, Switch, Button, ImageButton, TextView) and sets default date to today |
+| `onCreate(Bundle)` | Initialises database, executor, date format, views, spinner, date picker, map picker launcher, click listeners; checks for edit mode from intent |
+| `initializeViews()` | Binds all form input fields (EditText, Spinner, Switch, Button, ImageButton, TextView) including map picker button; sets default date to today |
+| `setupMapPickerLauncher()` | Registers ActivityResultLauncher for MapPickerActivity, handles returned latitude, longitude, and address to populate location field |
 | `setupDifficultySpinner()` | Populates difficulty dropdown with Easy/Medium/Hard options from string array resource |
 | `setupDatePicker()` | Creates DatePickerDialog triggered when date input is clicked, updates calendar and input text |
-| `setupClickListeners()` | Configures back button, cancel button (both finish activity), and save button (calls saveHike) |
+| `setupClickListeners()` | Configures back button, cancel button (both finish activity), save button (calls saveHike), and map picker button (launches MapPickerActivity via mapPickerLauncher) |
 | `loadHikeForEdit(int)` | Queries Room database on background thread for existing hike, calls populateForm on UI thread |
 | `populateForm(Hike)` | Fills all form fields with hike data: name, location, date, length, difficulty, parking, description |
 | `saveHike()` | Validates form, parses inputs, creates Hike entity, sets userId if logged in, inserts/updates in Room, triggers sync if online |
@@ -3771,6 +3815,305 @@ protected void onDestroy() {
     super.onDestroy();
     if (executorService != null) {
         executorService.shutdown();
+    }
+}
+```
+
+---
+
+#### 5.2.12 MapPickerActivity.java (342 lines)
+
+**Purpose**: Interactive map interface using Mapsforge with OpenStreetMap tiles allowing users to visually select hike locations by tapping on the map. No API key required.
+
+| Method | Description |
+|--------|-------------|
+| `onCreate(Bundle)` | Initialises AndroidGraphicFactory, sets up MapView, confirm/cancel buttons, FusedLocationProviderClient; calls setupMap() and getCurrentLocationAndCenter() |
+| `setupMap()` | Creates TileCache with AndroidUtil, configures OpenStreetMapMapnik tile source, adds TileDownloadLayer, sets initial position to London, enables zoom controls, sets up touch listener for tap detection |
+| `placeMarker(LatLong)` | Removes existing marker if present, creates new marker bitmap, adds Marker layer at tapped coordinates, enables confirm button, calls getAddressFromLocation() |
+| `createMarkerBitmap()` | Creates 48x48 custom marker using Mapsforge Canvas API with white border circle, red fill circle, and inner white dot |
+| `getCurrentLocationAndCenter()` | Checks ACCESS_FINE_LOCATION permission, requests if not granted, uses FusedLocationProviderClient.getLastLocation() to centre map on user's current position with zoom level 15 |
+| `getAddressFromLocation(LatLong)` | Uses Android Geocoder to reverse-geocode coordinates into readable address string (thoroughfare, locality, admin area, country); falls back to coordinates if geocoding fails |
+| `onRequestPermissionsResult(...)` | Handles location permission grant result, calls getCurrentLocationAndCenter() if granted |
+| `onStart()` | Resumes TileDownloadLayer for tile fetching |
+| `onStop()` | Pauses TileDownloadLayer to conserve resources |
+| `onDestroy()` | Destroys MapView, TileCache, clears AndroidGraphicFactory resource memory cache |
+
+**Complete Code Implementation**:
+
+```java
+package com.example.mobilecw.activities;
+
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.location.Address;
+import android.location.Geocoder;
+import android.os.Bundle;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+
+import com.example.mobilecw.R;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+
+import org.mapsforge.core.graphics.Bitmap;
+import org.mapsforge.core.graphics.Color;
+import org.mapsforge.core.graphics.Paint;
+import org.mapsforge.core.graphics.Style;
+import org.mapsforge.core.model.LatLong;
+import org.mapsforge.map.android.graphics.AndroidGraphicFactory;
+import org.mapsforge.map.android.util.AndroidUtil;
+import org.mapsforge.map.android.view.MapView;
+import org.mapsforge.map.layer.cache.TileCache;
+import org.mapsforge.map.layer.download.TileDownloadLayer;
+import org.mapsforge.map.layer.download.tilesource.OpenStreetMapMapnik;
+import org.mapsforge.map.layer.overlay.Marker;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Map picker activity using Mapsforge with OpenStreetMap tiles.
+ * No API key required - uses free OpenStreetMap data.
+ */
+public class MapPickerActivity extends AppCompatActivity {
+
+    public static final String EXTRA_LATITUDE = "latitude";
+    public static final String EXTRA_LONGITUDE = "longitude";
+    public static final String EXTRA_ADDRESS = "address";
+
+    private MapView mapView;
+    private TileCache tileCache;
+    private TileDownloadLayer tileDownloadLayer;
+    private Marker currentMarker;
+    
+    private LatLong selectedLocation;
+    private String selectedAddress = "";
+
+    private TextView tvSelectedLocation;
+    private Button btnConfirmLocation;
+    private FusedLocationProviderClient fusedLocationClient;
+
+    private static final int LOCATION_PERMISSION_REQUEST = 1001;
+    private static final double DEFAULT_LAT = 51.5074;
+    private static final double DEFAULT_LON = -0.1278;
+    private static final byte DEFAULT_ZOOM = 12;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        
+        // Initialize AndroidGraphicFactory BEFORE setContentView
+        AndroidGraphicFactory.createInstance(getApplication());
+        
+        setContentView(R.layout.activity_map_picker);
+
+        tvSelectedLocation = findViewById(R.id.tvSelectedLocation);
+        btnConfirmLocation = findViewById(R.id.btnConfirmLocation);
+        Button btnCancel = findViewById(R.id.btnCancel);
+        mapView = findViewById(R.id.mapView);
+
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+
+        setupMap();
+
+        btnConfirmLocation.setOnClickListener(v -> {
+            if (selectedLocation != null) {
+                Intent resultIntent = new Intent();
+                resultIntent.putExtra(EXTRA_LATITUDE, selectedLocation.latitude);
+                resultIntent.putExtra(EXTRA_LONGITUDE, selectedLocation.longitude);
+                resultIntent.putExtra(EXTRA_ADDRESS, selectedAddress);
+                setResult(RESULT_OK, resultIntent);
+                finish();
+            } else {
+                Toast.makeText(this, "Please tap on the map to select a location", 
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        btnCancel.setOnClickListener(v -> {
+            setResult(RESULT_CANCELED);
+            finish();
+        });
+
+        btnConfirmLocation.setEnabled(false);
+        getCurrentLocationAndCenter();
+    }
+
+    private void setupMap() {
+        tileCache = AndroidUtil.createTileCache(
+                this, "mapcache",
+                mapView.getModel().displayModel.getTileSize(),
+                1f, mapView.getModel().frameBufferModel.getOverdrawFactor()
+        );
+
+        OpenStreetMapMapnik tileSource = OpenStreetMapMapnik.INSTANCE;
+        tileSource.setUserAgent("MHike-Android-App");
+        
+        tileDownloadLayer = new TileDownloadLayer(
+                tileCache, mapView.getModel().mapViewPosition,
+                tileSource, AndroidGraphicFactory.INSTANCE
+        );
+        
+        mapView.getLayerManager().getLayers().add(tileDownloadLayer);
+        mapView.getModel().mapViewPosition.setCenter(new LatLong(DEFAULT_LAT, DEFAULT_LON));
+        mapView.getModel().mapViewPosition.setZoomLevel(DEFAULT_ZOOM);
+        mapView.setBuiltInZoomControls(true);
+
+        // Handle map tap to drop pin
+        mapView.setOnTouchListener(new View.OnTouchListener() {
+            private float startX, startY;
+            private long startTime;
+            
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startX = event.getX();
+                        startY = event.getY();
+                        startTime = System.currentTimeMillis();
+                        break;
+                    case MotionEvent.ACTION_UP:
+                        float distance = (float) Math.sqrt(
+                                Math.pow(event.getX() - startX, 2) + 
+                                Math.pow(event.getY() - startY, 2));
+                        if (distance < 20 && System.currentTimeMillis() - startTime < 300) {
+                            LatLong tapLatLong = mapView.getMapViewProjection()
+                                    .fromPixels(event.getX(), event.getY());
+                            if (tapLatLong != null) {
+                                placeMarker(tapLatLong);
+                            }
+                        }
+                        break;
+                }
+                return false;
+            }
+        });
+    }
+
+    private void placeMarker(LatLong latLong) {
+        if (currentMarker != null) {
+            mapView.getLayerManager().getLayers().remove(currentMarker);
+        }
+        Bitmap markerBitmap = createMarkerBitmap();
+        currentMarker = new Marker(latLong, markerBitmap, 0, -markerBitmap.getHeight() / 2);
+        mapView.getLayerManager().getLayers().add(currentMarker);
+        selectedLocation = latLong;
+        btnConfirmLocation.setEnabled(true);
+        getAddressFromLocation(latLong);
+        mapView.getLayerManager().redrawLayers();
+    }
+
+    private Bitmap createMarkerBitmap() {
+        int width = 48, height = 48;
+        Bitmap bitmap = AndroidGraphicFactory.INSTANCE.createBitmap(width, height);
+        org.mapsforge.core.graphics.Canvas canvas = AndroidGraphicFactory.INSTANCE.createCanvas();
+        canvas.setBitmap(bitmap);
+        
+        Paint whitePaint = AndroidGraphicFactory.INSTANCE.createPaint();
+        whitePaint.setColor(Color.WHITE);
+        whitePaint.setStyle(Style.FILL);
+        canvas.drawCircle(width / 2, height / 2, 20, whitePaint);
+        
+        Paint redPaint = AndroidGraphicFactory.INSTANCE.createPaint();
+        redPaint.setColor(Color.RED);
+        redPaint.setStyle(Style.FILL);
+        canvas.drawCircle(width / 2, height / 2, 16, redPaint);
+        
+        canvas.drawCircle(width / 2, height / 2, 6, whitePaint);
+        return bitmap;
+    }
+
+    private void getCurrentLocationAndCenter() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                    LOCATION_PERMISSION_REQUEST);
+            return;
+        }
+        fusedLocationClient.getLastLocation()
+                .addOnSuccessListener(this, location -> {
+                    if (location != null) {
+                        LatLong currentLatLong = new LatLong(
+                                location.getLatitude(), location.getLongitude());
+                        mapView.getModel().mapViewPosition.setCenter(currentLatLong);
+                        mapView.getModel().mapViewPosition.setZoomLevel((byte) 15);
+                    }
+                });
+    }
+
+    private void getAddressFromLocation(LatLong latLong) {
+        Geocoder geocoder = new Geocoder(this, Locale.getDefault());
+        try {
+            List<Address> addresses = geocoder.getFromLocation(
+                    latLong.latitude, latLong.longitude, 1);
+            if (addresses != null && !addresses.isEmpty()) {
+                Address address = addresses.get(0);
+                StringBuilder sb = new StringBuilder();
+                if (address.getThoroughfare() != null) sb.append(address.getThoroughfare());
+                if (address.getLocality() != null) {
+                    if (sb.length() > 0) sb.append(", ");
+                    sb.append(address.getLocality());
+                }
+                if (address.getAdminArea() != null) {
+                    if (sb.length() > 0) sb.append(", ");
+                    sb.append(address.getAdminArea());
+                }
+                if (address.getCountryName() != null) {
+                    if (sb.length() > 0) sb.append(", ");
+                    sb.append(address.getCountryName());
+                }
+                selectedAddress = sb.length() > 0 ? sb.toString() :
+                        String.format(Locale.US, "%.6f, %.6f", latLong.latitude, latLong.longitude);
+            } else {
+                selectedAddress = String.format(Locale.US, "%.6f, %.6f", 
+                        latLong.latitude, latLong.longitude);
+            }
+        } catch (IOException e) {
+            selectedAddress = String.format(Locale.US, "%.6f, %.6f", 
+                    latLong.latitude, latLong.longitude);
+        }
+        tvSelectedLocation.setText(selectedAddress);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                getCurrentLocationAndCenter();
+            }
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (tileDownloadLayer != null) tileDownloadLayer.onResume();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (tileDownloadLayer != null) tileDownloadLayer.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mapView != null) mapView.destroyAll();
+        if (tileCache != null) tileCache.destroy();
+        AndroidGraphicFactory.clearResourceMemoryCache();
     }
 }
 ```

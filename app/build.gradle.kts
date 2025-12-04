@@ -1,16 +1,17 @@
 import java.util.Properties
 import java.io.FileInputStream
 
-val geminiApiKey: String = run {
+val localProperties: Properties = run {
     val propertiesFile = rootProject.file("local.properties")
+    val properties = Properties()
     if (propertiesFile.exists()) {
-        val properties = Properties()
         properties.load(FileInputStream(propertiesFile))
-        properties.getProperty("gemini.apiKey", "") ?: ""
-    } else {
-        ""
     }
+    properties
 }
+
+val geminiApiKey: String = localProperties.getProperty("gemini.apiKey", "")
+val meteoblueApiKey: String = localProperties.getProperty("meteoblue.apiKey", "")
 
 plugins {
     alias(libs.plugins.android.application)
@@ -40,6 +41,11 @@ android {
             "String",
             "GEMINI_API_KEY",
             "\"${geminiApiKey}\""
+        )
+        buildConfigField(
+            "String",
+            "METEOBLUE_API_KEY",
+            "\"${meteoblueApiKey}\""
         )
     }
 
@@ -91,6 +97,14 @@ dependencies {
     
     // Location Services
     implementation(libs.play.services.location)
+    
+    // Mapsforge (OpenStreetMap - no API key required)
+    implementation("org.mapsforge:mapsforge-core:0.21.0")
+    implementation("org.mapsforge:mapsforge-map:0.21.0")
+    implementation("org.mapsforge:mapsforge-map-reader:0.21.0")
+    implementation("org.mapsforge:mapsforge-themes:0.21.0")
+    implementation("org.mapsforge:mapsforge-map-android:0.21.0")
+    implementation("net.sf.kxml:kxml2:2.3.0")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)

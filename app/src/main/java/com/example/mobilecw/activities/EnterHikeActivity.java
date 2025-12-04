@@ -14,6 +14,8 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.mobilecw.R;
@@ -40,7 +42,7 @@ public class EnterHikeActivity extends AppCompatActivity {
     private Spinner difficultySpinner;
     private Switch parkingSwitch;
     private Button saveButton, cancelButton;
-    private ImageButton backButton;
+    private ImageButton backButton, btnPickLocation;
     private TextView headerTitleText;
     
     private AppDatabase database;
@@ -52,6 +54,13 @@ public class EnterHikeActivity extends AppCompatActivity {
     private boolean isEditMode = false;
     private int editingHikeId = -1;
     private Hike editingHike;
+    
+    // Store selected coordinates
+    private double selectedLatitude = 0;
+    private double selectedLongitude = 0;
+    
+    // Map picker launcher
+    private ActivityResultLauncher<Intent> mapPickerLauncher;
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,6 +74,9 @@ public class EnterHikeActivity extends AppCompatActivity {
         
         calendar = Calendar.getInstance();
         dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+        
+        // Initialize map picker launcher
+        setupMapPickerLauncher();
         
         // Initialize views
         initializeViews();
@@ -104,9 +116,32 @@ public class EnterHikeActivity extends AppCompatActivity {
         saveButton = findViewById(R.id.saveButton);
         cancelButton = findViewById(R.id.cancelButton);
         backButton = findViewById(R.id.backButton);
+        btnPickLocation = findViewById(R.id.btnPickLocation);
         
         // Set default date to today
         dateInput.setText(dateFormat.format(calendar.getTime()));
+    }
+    
+    private void setupMapPickerLauncher() {
+        mapPickerLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    Intent data = result.getData();
+                    selectedLatitude = data.getDoubleExtra(MapPickerActivity.EXTRA_LATITUDE, 0);
+                    selectedLongitude = data.getDoubleExtra(MapPickerActivity.EXTRA_LONGITUDE, 0);
+                    String address = data.getStringExtra(MapPickerActivity.EXTRA_ADDRESS);
+                    
+                    if (address != null && !address.isEmpty()) {
+                        locationInput.setText(address);
+                    } else {
+                        // Use coordinates if no address
+                        locationInput.setText(String.format(Locale.US, "%.6f, %.6f", 
+                                selectedLatitude, selectedLongitude));
+                    }
+                }
+            }
+        );
     }
     
     private void setupDifficultySpinner() {
@@ -141,6 +176,12 @@ public class EnterHikeActivity extends AppCompatActivity {
         cancelButton.setOnClickListener(v -> finish());
         
         saveButton.setOnClickListener(v -> saveHike());
+        
+        // Map picker button
+        btnPickLocation.setOnClickListener(v -> {
+            Intent intent = new Intent(this, MapPickerActivity.class);
+            mapPickerLauncher.launch(intent);
+        });
     }
     
     private void loadHikeForEdit(int hikeId) {

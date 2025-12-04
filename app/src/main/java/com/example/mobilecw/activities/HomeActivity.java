@@ -21,6 +21,7 @@ import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+import com.example.mobilecw.BuildConfig;
 import com.example.mobilecw.R;
 import com.example.mobilecw.adapters.NearbyTrailAdapter;
 import com.example.mobilecw.database.AppDatabase;
@@ -262,8 +263,9 @@ public class HomeActivity extends AppCompatActivity {
     
     private void fetchWeather() {
         // Using meteoblue Free Weather API (Current weather package)
-        // API URL generated from meteoblue configurator for a specific location
-        String url = "https://my.meteoblue.com/packages/current?apikey=nST0Iv3lgb9MOZHY&lat=10.4963&lon=107.169&asl=8&format=json&tz=GMT&forecast_days=1";
+        // API key stored securely in local.properties via BuildConfig
+        String apiKey = BuildConfig.METEOBLUE_API_KEY;
+        String url = "https://my.meteoblue.com/packages/current?apikey=" + apiKey + "&lat=10.4963&lon=107.169&asl=8&format=json&tz=GMT&forecast_days=1";
 
         JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(
                 Request.Method.GET,
