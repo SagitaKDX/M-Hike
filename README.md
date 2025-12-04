@@ -583,9 +583,9 @@ protected void onCreate(Bundle savedInstanceState) {
 
 ### 5.2 Activities Package (`com.example.mobilecw.activities`)
 
-#### 5.2.1 HomeActivity.java (374 lines)
+#### 5.2.1 HomeActivity.java (376 lines)
 
-**Purpose**: Main dashboard displaying weather, hiking statistics, active hike status, and nearby trails.
+**Purpose**: Main dashboard displaying weather, hiking statistics, active hike status, and nearby trails. Weather API key secured via BuildConfig.
 
 | Method | Description |
 |--------|-------------|
@@ -598,7 +598,7 @@ protected void onCreate(Bundle savedInstanceState) {
 | `loadUserData()` | Loads username from SharedPreferences and displays in header |
 | `loadActivityStats()` | Queries Room database asynchronously for total hike count and total kilometres, updates UI on main thread |
 | `loadNearbyTrails()` | Fetches user's hikes or all hikes, populates horizontal RecyclerView with NearbyTrailAdapter |
-| `fetchWeather()` | Makes Volley GET request to meteoblue Weather API, parses JSON response, updates weather card |
+| `fetchWeather()` | Makes Volley GET request to meteoblue Weather API using secure API key from `BuildConfig.METEOBLUE_API_KEY`, parses JSON response, updates weather card |
 | `loadActiveHike()` | Queries for active hike, calculates elapsed duration, shows/hides active hike card |
 | `capitalize(String)` | Helper to capitalise first letter of a string |
 | `onDestroy()` | Shuts down ExecutorService to prevent memory leaks |
@@ -809,49 +809,44 @@ private void loadNearbyTrails() {
 
 private void fetchWeather() {
     // Using meteoblue Free Weather API (Current weather package)
-    // API URL generated from meteoblue configurator for a specific location
-    String url = "https://my.meteoblue.com/packages/current?apikey=nST0Iv3lgb9MOZHY&lat=10.4963&lon=107.169&asl=8&format=json&tz=GMT&forecast_days=1";
+    // API key stored securely in local.properties via BuildConfig
+    String apiKey = BuildConfig.METEOBLUE_API_KEY;
+    String url = "https://my.meteoblue.com/packages/current?apikey=" + apiKey + "&lat=10.4963&lon=107.169&asl=8&format=json&tz=GMT&forecast_days=1";
 
     JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(
             Request.Method.GET,
             url,
             null,
-            new Response.Listener<JSONObject>() {
-                @Override
-                public void onResponse(JSONObject response) {
-                    try {
-                        JSONObject metadata = response.getJSONObject("metadata");
-                        JSONObject units = response.getJSONObject("units");
-                        JSONObject dataCurrent = response.getJSONObject("data_current");
+            response -> {
+                try {
+                    JSONObject metadata = response.getJSONObject("metadata");
+                    JSONObject units = response.getJSONObject("units");
+                    JSONObject dataCurrent = response.getJSONObject("data_current");
 
-                        double latitude = metadata.optDouble("latitude", 0.0);
-                        double longitude = metadata.optDouble("longitude", 0.0);
-                        double temp = dataCurrent.getDouble("temperature");
-                        String tempUnit = units.optString("temperature", "C");
+                    double latitude = metadata.optDouble("latitude", 0.0);
+                    double longitude = metadata.optDouble("longitude", 0.0);
+                    double temp = dataCurrent.getDouble("temperature");
+                    String tempUnit = units.optString("temperature", "C");
 
-                        // Build simple location label from coordinates
-                        String locationLabel = String.format("Lat %.4f, Lon %.4f", latitude, longitude);
+                    // Build simple location label from coordinates
+                    String locationLabel = String.format("Lat %.4f, Lon %.4f", latitude, longitude);
 
-                        // Update UI
-                        weatherLocation.setText(locationLabel);
-                        weatherTemp.setText(String.format("%.0f°%s", temp, tempUnit));
-                        weatherDescription.setText(getString(R.string.weather_updated));
+                    // Update UI
+                    weatherLocation.setText(locationLabel);
+                    weatherTemp.setText(String.format("%.0f°%s", temp, tempUnit));
+                    weatherDescription.setText(getString(R.string.weather_updated));
 
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        weatherDescription.setText(getString(R.string.weather_error));
-                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    weatherDescription.setText(getString(R.string.weather_error));
                 }
             },
-            new Response.ErrorListener() {
-                @Override
-                public void onErrorResponse(VolleyError error) {
-                    weatherDescription.setText(getString(R.string.weather_error));
-                    // For demo purposes, show mock data
-                    weatherLocation.setText("Current Location");
-                    weatherTemp.setText("22°C");
-                    weatherDescription.setText("Partly Cloudy");
-                }
+            error -> {
+                weatherDescription.setText(getString(R.string.weather_error));
+                // For demo purposes, show mock data
+                weatherLocation.setText("Current Location");
+                weatherTemp.setText("22°C");
+                weatherDescription.setText("Partly Cloudy");
             }
     );
 
@@ -929,6 +924,12 @@ protected void onDestroy() {
 **Complete Code Implementation**:
 
 ```java
+// Key fields for map picker integration
+private ImageButton btnPickLocation;
+private double selectedLatitude = 0;
+private double selectedLongitude = 0;
+private ActivityResultLauncher<Intent> mapPickerLauncher;
+
 @Override
 protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -941,6 +942,9 @@ protected void onCreate(Bundle savedInstanceState) {
     
     calendar = Calendar.getInstance();
     dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+    
+    // Initialize map picker launcher BEFORE initializeViews
+    setupMapPickerLauncher();
     
     // Initialize views
     initializeViews();
@@ -980,9 +984,32 @@ private void initializeViews() {
     saveButton = findViewById(R.id.saveButton);
     cancelButton = findViewById(R.id.cancelButton);
     backButton = findViewById(R.id.backButton);
+    btnPickLocation = findViewById(R.id.btnPickLocation);
     
     // Set default date to today
     dateInput.setText(dateFormat.format(calendar.getTime()));
+}
+
+private void setupMapPickerLauncher() {
+    mapPickerLauncher = registerForActivityResult(
+        new ActivityResultContracts.StartActivityForResult(),
+        result -> {
+            if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                Intent data = result.getData();
+                selectedLatitude = data.getDoubleExtra(MapPickerActivity.EXTRA_LATITUDE, 0);
+                selectedLongitude = data.getDoubleExtra(MapPickerActivity.EXTRA_LONGITUDE, 0);
+                String address = data.getStringExtra(MapPickerActivity.EXTRA_ADDRESS);
+                
+                if (address != null && !address.isEmpty()) {
+                    locationInput.setText(address);
+                } else {
+                    // Use coordinates if no address available
+                    locationInput.setText(String.format(Locale.US, "%.6f, %.6f", 
+                            selectedLatitude, selectedLongitude));
+                }
+            }
+        }
+    );
 }
 
 private void setupDifficultySpinner() {
@@ -1017,6 +1044,12 @@ private void setupClickListeners() {
     cancelButton.setOnClickListener(v -> finish());
     
     saveButton.setOnClickListener(v -> saveHike());
+    
+    // Map picker button - launches MapPickerActivity
+    btnPickLocation.setOnClickListener(v -> {
+        Intent intent = new Intent(this, MapPickerActivity.class);
+        mapPickerLauncher.launch(intent);
+    });
 }
 
 private void loadHikeForEdit(int hikeId) {
@@ -3841,45 +3874,6 @@ protected void onDestroy() {
 **Complete Code Implementation**:
 
 ```java
-package com.example.mobilecw.activities;
-
-import android.Manifest;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.location.Address;
-import android.location.Geocoder;
-import android.os.Bundle;
-import android.view.MotionEvent;
-import android.view.View;
-import android.widget.Button;
-import android.widget.TextView;
-import android.widget.Toast;
-
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-
-import com.example.mobilecw.R;
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationServices;
-
-import org.mapsforge.core.graphics.Bitmap;
-import org.mapsforge.core.graphics.Color;
-import org.mapsforge.core.graphics.Paint;
-import org.mapsforge.core.graphics.Style;
-import org.mapsforge.core.model.LatLong;
-import org.mapsforge.map.android.graphics.AndroidGraphicFactory;
-import org.mapsforge.map.android.util.AndroidUtil;
-import org.mapsforge.map.android.view.MapView;
-import org.mapsforge.map.layer.cache.TileCache;
-import org.mapsforge.map.layer.download.TileDownloadLayer;
-import org.mapsforge.map.layer.download.tilesource.OpenStreetMapMapnik;
-import org.mapsforge.map.layer.overlay.Marker;
-
-import java.io.IOException;
-import java.util.List;
-import java.util.Locale;
-
 /**
  * Map picker activity using Mapsforge with OpenStreetMap tiles.
  * No API key required - uses free OpenStreetMap data.
