@@ -140,13 +140,60 @@ public class LoginActivity extends AppCompatActivity {
                             loginButton.setEnabled(true);
                             SessionManager.setCurrentUserId(this, finalUser.getUserId());
                             SessionManager.setCurrentFirebaseUid(this, firebaseUid);
-                            FirebaseSyncManager.getInstance(getApplicationContext()).syncNow();
-                            Toast.makeText(this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
 
-                            Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
-                            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(intent);
-                            finish();
+                            // First push any local unsynced data (if present), then download from cloud
+                            FirebaseSyncManager.getInstance(getApplicationContext())
+                                    .syncNow(new FirebaseSyncManager.SyncCallback() {
+                                        @Override
+                                        public void onSuccess() {
+                                            FirebaseSyncManager.getInstance(getApplicationContext())
+                                                    .downloadUserData(new FirebaseSyncManager.SyncCallback() {
+                                                        @Override
+                                                        public void onSuccess() {
+                                                            Toast.makeText(LoginActivity.this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
+                                                            Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                            startActivity(intent);
+                                                            finish();
+                                                        }
+
+                                                        @Override
+                                                        public void onFailure(Exception exception) {
+                                                            // Even if download fails, allow login to proceed
+                                                            Toast.makeText(LoginActivity.this, "Login succeeded but failed to load cloud data", Toast.LENGTH_LONG).show();
+                                                            Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                            startActivity(intent);
+                                                            finish();
+                                                        }
+                                                    });
+                                        }
+
+                                        @Override
+                                        public void onFailure(Exception exception) {
+                                            // If upload sync fails, still attempt to download cloud data
+                                            FirebaseSyncManager.getInstance(getApplicationContext())
+                                                    .downloadUserData(new FirebaseSyncManager.SyncCallback() {
+                                                        @Override
+                                                        public void onSuccess() {
+                                                            Toast.makeText(LoginActivity.this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
+                                                            Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                            startActivity(intent);
+                                                            finish();
+                                                        }
+
+                                                        @Override
+                                                        public void onFailure(Exception exception) {
+                                                            Toast.makeText(LoginActivity.this, "Login succeeded but sync failed", Toast.LENGTH_LONG).show();
+                                                            Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                            startActivity(intent);
+                                                            finish();
+                                                        }
+                                                    });
+                                        }
+                                    });
                         });
                     });
                 });

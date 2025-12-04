@@ -18,6 +18,8 @@ import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.firestore.SetOptions;
 
 import java.util.ArrayList;
@@ -254,6 +256,174 @@ public class FirebaseSyncManager {
         data.put("updatedAt", System.currentTimeMillis());
         data.put("lastSeen", FieldValue.serverTimestamp());
         return data;
+    }
+
+    /**
+     * Download all hikes (and their observations) for the current Firebase user
+     * from Firestore into the local Room database. This is intended to be used
+     * after a fresh login on a device where local tables were cleared on logout.
+     */
+    public void downloadUserData(SyncCallback callback) {
+        int userId = SessionManager.getCurrentUserId(appContext);
+        String firebaseUid = SessionManager.getCurrentFirebaseUid(appContext);
+
+        if (userId == -1 || firebaseUid == null) {
+            Log.d(TAG, "downloadUserData: no logged-in user; skipping");
+            notifySuccess(callback);
+            return;
+        }
+
+        // Fetch all hikes for this user from Firestore
+        firestore.collection("users")
+                .document(firebaseUid)
+                .collection("hikes")
+                .get()
+                .addOnSuccessListener(querySnapshot -> executorService.execute(() -> {
+                    try {
+                        // Clear local hikes/observations before re-populating
+                        hikeDao.deleteAllHikes();
+                        observationDao.deleteAllObservations();
+
+                        List<Task<QuerySnapshot>> observationTasks = new ArrayList<>();
+
+                        for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
+                            if (!doc.exists()) continue;
+
+                            // Parse hike fields defensively
+                            Hike hike = new Hike();
+                            try {
+                                String id = doc.getId();
+                                int hikeId = Integer.parseInt(id);
+                                hike.setHikeID(hikeId);
+                            } catch (NumberFormatException e) {
+                                // If ID is not an integer, skip this hike
+                                continue;
+                            }
+
+                            hike.setUserId(userId);
+                            hike.setName(doc.getString("name"));
+                            hike.setLocation(doc.getString("location"));
+
+                            Long dateMillis = doc.getLong("date");
+                            if (dateMillis != null) {
+                                hike.setDate(new java.util.Date(dateMillis));
+                            }
+
+                            Boolean parkingAvailable = doc.getBoolean("parkingAvailable");
+                            hike.setParkingAvailable(parkingAvailable != null && parkingAvailable);
+
+                            Double length = doc.getDouble("length");
+                            if (length != null) {
+                                hike.setLength(length);
+                            }
+
+                            hike.setDifficulty(doc.getString("difficulty"));
+                            hike.setDescription(doc.getString("description"));
+                            hike.setPurchaseParkingPass(doc.getString("purchaseParkingPass"));
+
+                            hike.setIsActive(doc.getBoolean("isActive"));
+                            Long startTime = doc.getLong("startTime");
+                            Long endTime = doc.getLong("endTime");
+                            hike.setStartTime(startTime);
+                            hike.setEndTime(endTime);
+
+                            Long createdAt = doc.getLong("createdAt");
+                            Long updatedAt = doc.getLong("updatedAt");
+                            hike.setCreatedAt(createdAt);
+                            hike.setUpdatedAt(updatedAt);
+                            hike.setSynced(true);
+
+                            // Insert/replace hike locally
+                            hikeDao.insertHike(hike);
+
+                            // Also queue observation downloads for this hike
+                            Task<QuerySnapshot> obsTask = doc.getReference()
+                                    .collection("observations")
+                                    .get();
+                            observationTasks.add(obsTask);
+                        }
+
+                        if (observationTasks.isEmpty()) {
+                            notifySuccess(callback);
+                            return;
+                        }
+
+                        // When all observation sub-collections have been fetched, write them to Room
+                        Tasks.whenAllSuccess(observationTasks)
+                                .addOnSuccessListener(mainThreadExecutor, unused -> executorService.execute(() -> {
+                                    try {
+                                        for (Task<QuerySnapshot> task : observationTasks) {
+                                            QuerySnapshot snapshot = null;
+                                            try {
+                                                snapshot = Tasks.await(task);
+                                            } catch (Exception e) {
+                                                Log.e(TAG, "Failed awaiting observation task", e);
+                                            }
+                                            if (snapshot == null) continue;
+
+                                            for (DocumentSnapshot obsDoc : snapshot.getDocuments()) {
+                                                if (!obsDoc.exists()) continue;
+
+                                                Observation obs = new Observation();
+                                                try {
+                                                    String obsId = obsDoc.getId();
+                                                    obs.setObservationID(Integer.parseInt(obsId));
+                                                } catch (NumberFormatException e) {
+                                                    continue;
+                                                }
+
+                                                // Parent hikeId from path
+                                                try {
+                                                    String parentId = obsDoc.getReference()
+                                                            .getParent() // observations
+                                                            .getParent() // hikes/{hikeId}
+                                                            .getId();
+                                                    obs.setHikeId(Integer.parseInt(parentId));
+                                                } catch (Exception e) {
+                                                    // If we can't parse hikeId, skip
+                                                    continue;
+                                                }
+
+                                                obs.setObservationText(obsDoc.getString("observationText"));
+
+                                                Long timeMillis = obsDoc.getLong("time");
+                                                if (timeMillis != null) {
+                                                    obs.setTime(new java.util.Date(timeMillis));
+                                                }
+
+                                                obs.setComments(obsDoc.getString("comments"));
+                                                obs.setLocation(obsDoc.getString("location"));
+                                                obs.setPicture(obsDoc.getString("picture"));
+
+                                                Long createdAt = obsDoc.getLong("createdAt");
+                                                Long updatedAt = obsDoc.getLong("updatedAt");
+                                                obs.setCreatedAt(createdAt);
+                                                obs.setUpdatedAt(updatedAt);
+                                                obs.setSynced(true);
+
+                                                observationDao.insertObservation(obs);
+                                            }
+                                        }
+                                        notifySuccess(callback);
+                                    } catch (Exception e) {
+                                        Log.e(TAG, "Error while saving downloaded observations", e);
+                                        notifyFailure(callback, e);
+                                    }
+                                }))
+                                .addOnFailureListener(mainThreadExecutor, e -> {
+                                    Log.e(TAG, "Failed to download observations", e);
+                                    notifyFailure(callback, e);
+                                });
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "downloadUserData: error while processing hikes", e);
+                        notifyFailure(callback, e);
+                    }
+                }))
+                .addOnFailureListener(e -> {
+                    Log.e(TAG, "Failed to download hikes for user " + firebaseUid, e);
+                    notifyFailure(callback, e);
+                });
     }
 }
 

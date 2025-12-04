@@ -169,7 +169,7 @@ erDiagram
 
 ### 2.3 Selective Synchronisation Flow
 
-The synchronisation mechanism implements an **Offline-First** pattern where local changes are queued and pushed to Firebase only when network connectivity is available. The `synced` flag prevents redundant uploads.
+The synchronisation mechanism implements an **Offline-First** pattern where local changes are queued and pushed to Firebase only when network connectivity is available. The `synced` flag prevents redundant uploads. After a successful login on a freshly installed or wiped device, the app now performs a two-step sync: it first uploads any remaining unsynced local data, then downloads all hikes and observations for the authenticated user from Firestore back into the local Room database, fully rebuilding the offline cache.
 
 ```mermaid
 flowchart TD
@@ -317,7 +317,7 @@ In the early stages, attempts were made to read and write directly to Firebase. 
 
 Introducing local-first storage created a new challenge: the "Synchronisation Problem"—how to keep two databases in sync without creating duplicates or data conflicts. This was overcome by implementing a **Selective Sync** algorithm.
 
-Instead of re-uploading the entire database on each sync operation, a `synced` and `updatedAt` field was added to every entity. The synchronisation logic checks `if (!synced && isOnline)` before uploading, significantly reducing bandwidth consumption. Particular care was required to ensure that an `Observation` (child entity) was not uploaded before its parent `Hike` existed in the cloud, requiring careful ordering of sync operations.
+Instead of re-uploading the entire database on each sync operation, a `synced` and `updatedAt` field was added to every entity. The synchronisation logic checks `if (!synced && isOnline)` before uploading, significantly reducing bandwidth consumption. Particular care was required to ensure that an `Observation` (child entity) was not uploaded before its parent `Hike` existed in the cloud, requiring careful ordering of sync operations. On the other side of the pipeline, a new **downloadUserData(...)** method in `FirebaseSyncManager` is invoked from `LoginActivity` after successful authentication; this pulls all of the user's hikes and observations down from Firestore into Room so that logging in on a new device (or after a local wipe) restores the full offline dataset.
 
 ```java
 // From FirebaseSyncManager.java - Selective sync implementation
@@ -2364,16 +2364,16 @@ protected void onDestroy() {
 
 ---
 
-#### 5.2.6 LoginActivity.java (178 lines)
+#### 5.2.6 LoginActivity.java (235 lines)
 
-**Purpose**: Firebase Authentication login with Room database synchronisation.
+**Purpose**: Firebase Authentication login with Room database synchronisation and post-login cloud reload of hikes/observations.
 
 | Method | Description |
 |--------|-------------|
 | `onCreate(Bundle)` | Initialises database, DAO, executor, FirebaseAuth instance, views, and click listeners |
 | `initializeViews()` | Binds back button, email/password EditTexts, TextInputLayouts, login/signup buttons, forgot password text |
 | `setupClickListeners()` | Configures back button (finish), login button (handleLogin), signup button (navigate), forgot password (toast) |
-| `handleLogin()` | Validates form, calls Firebase signInWithEmailAndPassword, syncs with Room user on success |
+| `handleLogin()` | Validates form, signs in with Firebase Auth, ensures a local Room user exists, stores IDs in `SessionManager`, then runs `FirebaseSyncManager.syncNow()` followed by `downloadUserData(...)` to upload unsynced data and reload all hikes/observations from Firestore before navigating to `UsersActivity` |
 | `validateForm(String, String)` | Validates email format using regex pattern and password minimum length (6 chars) |
 | `onDestroy()` | Shuts down ExecutorService |
 
@@ -2474,13 +2474,60 @@ private void handleLogin() {
                         loginButton.setEnabled(true);
                         SessionManager.setCurrentUserId(this, finalUser.getUserId());
                         SessionManager.setCurrentFirebaseUid(this, firebaseUid);
-                        FirebaseSyncManager.getInstance(getApplicationContext()).syncNow();
-                        Toast.makeText(this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
 
-                        Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
-                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(intent);
-                        finish();
+                        // First push any local unsynced data (if present), then download from cloud
+                        FirebaseSyncManager.getInstance(getApplicationContext())
+                                .syncNow(new FirebaseSyncManager.SyncCallback() {
+                                    @Override
+                                    public void onSuccess() {
+                                        FirebaseSyncManager.getInstance(getApplicationContext())
+                                                .downloadUserData(new FirebaseSyncManager.SyncCallback() {
+                                                    @Override
+                                                    public void onSuccess() {
+                                                        Toast.makeText(LoginActivity.this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
+                                                        Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                        startActivity(intent);
+                                                        finish();
+                                                    }
+
+                                                    @Override
+                                                    public void onFailure(Exception exception) {
+                                                        // Even if download fails, allow login to proceed
+                                                        Toast.makeText(LoginActivity.this, "Login succeeded but failed to load cloud data", Toast.LENGTH_LONG).show();
+                                                        Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                        startActivity(intent);
+                                                        finish();
+                                                    }
+                                                });
+                                    }
+
+                                    @Override
+                                    public void onFailure(Exception exception) {
+                                        // If upload sync fails, still attempt to download cloud data
+                                        FirebaseSyncManager.getInstance(getApplicationContext())
+                                                .downloadUserData(new FirebaseSyncManager.SyncCallback() {
+                                                    @Override
+                                                    public void onSuccess() {
+                                                        Toast.makeText(LoginActivity.this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
+                                                        Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                        startActivity(intent);
+                                                        finish();
+                                                    }
+
+                                                    @Override
+                                                    public void onFailure(Exception exception) {
+                                                        Toast.makeText(LoginActivity.this, "Login succeeded but sync failed", Toast.LENGTH_LONG).show();
+                                                        Intent intent = new Intent(LoginActivity.this, UsersActivity.class);
+                                                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                        startActivity(intent);
+                                                        finish();
+                                                    }
+                                                });
+                                    }
+                                });
                     });
                 });
             });
@@ -5594,33 +5641,35 @@ public class SemanticSearchService {
 
 ### 5.8 Sync Package (`com.example.mobilecw.sync`)
 
-#### 5.8.1 FirebaseSyncManager.java (261 lines)
+#### 5.8.1 FirebaseSyncManager.java (431 lines)
 
-**Purpose**: Orchestrates offline-first synchronisation between Room and Cloud Firestore.
+**Purpose**: Orchestrates offline-first, user-scoped synchronisation between the local Room database and Cloud Firestore, including both uploading unsynced data and downloading a fresh copy of the user's hikes/observations after login.
 
 | Method | Description |
 |--------|-------------|
 | `getInstance(Context)` | Returns singleton instance with lazy initialisation |
 | `syncNow()` | Triggers sync without callback (fire-and-forget) |
-| `syncNow(SyncCallback)` | Triggers full sync with completion callback |
-| `syncUserProfile(int, String)` | Uploads user profile document to Firestore users collection |
-| `syncHikes(int, String)` | Queries unsynced hikes, uploads to users/{uid}/hikes subcollection |
-| `syncObservations(int, String)` | Queries unsynced observations, uploads to users/{uid}/hikes/{hikeId}/observations |
-| `buildHikePayload(Hike)` | Converts Hike entity to Map<String, Object> for Firestore |
-| `buildObservationPayload(Observation)` | Converts Observation entity to Map<String, Object> |
-| `buildUserPayload(User)` | Converts User entity to Map<String, Object> |
-| `notifySuccess(SyncCallback)` | Posts onSuccess to main thread Handler |
-| `notifyFailure(SyncCallback, Exception)` | Posts onFailure to main thread Handler |
+| `syncNow(SyncCallback)` | Uploads unsynced hikes/observations and user profile, then triggers vector sync for embeddings |
+| `syncUserProfile(int, String)` | Uploads user profile document to Firestore `users/{firebaseUid}` collection |
+| `syncHikes(int, String)` | Queries unsynced hikes, uploads to `users/{uid}/hikes` subcollection and marks them as synced |
+| `syncObservations(int, String)` | Queries unsynced observations, uploads to `users/{uid}/hikes/{hikeId}/observations` and marks them as synced |
+| `downloadUserData(SyncCallback)` | Downloads all hikes and observations for the logged-in Firebase user from Firestore into Room (used after login) |
+| `buildHikePayload(Hike)` | Converts Hike entity to `Map<String, Object>` for Firestore |
+| `buildObservationPayload(Observation)` | Converts Observation entity to `Map<String, Object>` |
+| `buildUserPayload(User)` | Converts User entity to `Map<String, Object>` |
+| `notifySuccess(SyncCallback)` | Posts `onSuccess()` to the main thread executor |
+| `notifyFailure(SyncCallback, Exception)` | Posts `onFailure(Exception)` to the main thread executor |
 
 | Interface | Description |
 |-----------|-------------|
-| `SyncCallback` | Callback with `onSuccess()` and `onFailure(Exception)` methods |
+| `SyncCallback` | Callback with `onSuccess()` and `onFailure(Exception)` methods used by both upload and download sync operations |
 
 **Complete Code Implementation**:
 
 ```java
 /**
- * Handles pushing local Room data (per user) to Cloud Firestore.
+ * Handles pushing local Room data (per user) to Cloud Firestore and downloading
+ * user-specific data back into Room after login.
  *
  * For now we treat the local Room userId as the Firestore user document id.
  * Once Firebase Auth is wired in, swap {@link SessionManager} to return the
@@ -5834,6 +5883,7 @@ public class FirebaseSyncManager {
         data.put("syncedAt", FieldValue.serverTimestamp());
         return data;
     }
+
     private Map<String, Object> buildUserPayload(User user) {
         Map<String, Object> data = new HashMap<>();
         data.put("displayName", user.getUserName());
@@ -5843,6 +5893,166 @@ public class FirebaseSyncManager {
         data.put("updatedAt", System.currentTimeMillis());
         data.put("lastSeen", FieldValue.serverTimestamp());
         return data;
+    }
+
+    /**
+     * Download all hikes (and their observations) for the current Firebase user
+     * from Firestore into the local Room database. This is intended to be used
+     * after a fresh login on a device where local tables were cleared on logout.
+     */
+    public void downloadUserData(SyncCallback callback) {
+        int userId = SessionManager.getCurrentUserId(appContext);
+        String firebaseUid = SessionManager.getCurrentFirebaseUid(appContext);
+
+        if (userId == -1 || firebaseUid == null) {
+            Log.d(TAG, "downloadUserData: no logged-in user; skipping");
+            notifySuccess(callback);
+            return;
+        }
+
+        firestore.collection("users")
+                .document(firebaseUid)
+                .collection("hikes")
+                .get()
+                .addOnSuccessListener(querySnapshot -> executorService.execute(() -> {
+                    try {
+                        // Clear local hikes/observations before re-populating
+                        hikeDao.deleteAllHikes();
+                        observationDao.deleteAllObservations();
+
+                        List<Task<QuerySnapshot>> observationTasks = new ArrayList<>();
+
+                        for (DocumentSnapshot doc : querySnapshot.getDocuments()) {
+                            if (!doc.exists()) continue;
+
+                            Hike hike = new Hike();
+                            try {
+                                String id = doc.getId();
+                                int hikeId = Integer.parseInt(id);
+                                hike.setHikeID(hikeId);
+                            } catch (NumberFormatException e) {
+                                continue;
+                            }
+
+                            hike.setUserId(userId);
+                            hike.setName(doc.getString("name"));
+                            hike.setLocation(doc.getString("location"));
+
+                            Long dateMillis = doc.getLong("date");
+                            if (dateMillis != null) {
+                                hike.setDate(new java.util.Date(dateMillis));
+                            }
+
+                            Boolean parkingAvailable = doc.getBoolean("parkingAvailable");
+                            hike.setParkingAvailable(parkingAvailable != null && parkingAvailable);
+
+                            Double length = doc.getDouble("length");
+                            if (length != null) {
+                                hike.setLength(length);
+                            }
+
+                            hike.setDifficulty(doc.getString("difficulty"));
+                            hike.setDescription(doc.getString("description"));
+                            hike.setPurchaseParkingPass(doc.getString("purchaseParkingPass"));
+
+                            hike.setIsActive(doc.getBoolean("isActive"));
+                            Long startTime = doc.getLong("startTime");
+                            Long endTime = doc.getLong("endTime");
+                            hike.setStartTime(startTime);
+                            hike.setEndTime(endTime);
+
+                            Long createdAt = doc.getLong("createdAt");
+                            Long updatedAt = doc.getLong("updatedAt");
+                            hike.setCreatedAt(createdAt);
+                            hike.setUpdatedAt(updatedAt);
+                            hike.setSynced(true);
+
+                            hikeDao.insertHike(hike);
+
+                            Task<QuerySnapshot> obsTask = doc.getReference()
+                                    .collection("observations")
+                                    .get();
+                            observationTasks.add(obsTask);
+                        }
+
+                        if (observationTasks.isEmpty()) {
+                            notifySuccess(callback);
+                            return;
+                        }
+
+                        Tasks.whenAllSuccess(observationTasks)
+                                .addOnSuccessListener(mainThreadExecutor, unused -> executorService.execute(() -> {
+                                    try {
+                                        for (Task<QuerySnapshot> task : observationTasks) {
+                                            QuerySnapshot snapshot = null;
+                                            try {
+                                                snapshot = Tasks.await(task);
+                                            } catch (Exception e) {
+                                                Log.e(TAG, "Failed awaiting observation task", e);
+                                            }
+                                            if (snapshot == null) continue;
+
+                                            for (DocumentSnapshot obsDoc : snapshot.getDocuments()) {
+                                                if (!obsDoc.exists()) continue;
+
+                                                Observation obs = new Observation();
+                                                try {
+                                                    String obsId = obsDoc.getId();
+                                                    obs.setObservationID(Integer.parseInt(obsId));
+                                                } catch (NumberFormatException e) {
+                                                    continue;
+                                                }
+
+                                                try {
+                                                    String parentId = obsDoc.getReference()
+                                                            .getParent() // observations
+                                                            .getParent() // hikes/{hikeId}
+                                                            .getId();
+                                                    obs.setHikeId(Integer.parseInt(parentId));
+                                                } catch (Exception e) {
+                                                    continue;
+                                                }
+
+                                                obs.setObservationText(obsDoc.getString("observationText"));
+
+                                                Long timeMillis = obsDoc.getLong("time");
+                                                if (timeMillis != null) {
+                                                    obs.setTime(new java.util.Date(timeMillis));
+                                                }
+
+                                                obs.setComments(obsDoc.getString("comments"));
+                                                obs.setLocation(obsDoc.getString("location"));
+                                                obs.setPicture(obsDoc.getString("picture"));
+
+                                                Long createdAt = obsDoc.getLong("createdAt");
+                                                Long updatedAt = obsDoc.getLong("updatedAt");
+                                                obs.setCreatedAt(createdAt);
+                                                obs.setUpdatedAt(updatedAt);
+                                                obs.setSynced(true);
+
+                                                observationDao.insertObservation(obs);
+                                            }
+                                        }
+                                        notifySuccess(callback);
+                                    } catch (Exception e) {
+                                        Log.e(TAG, "Error while saving downloaded observations", e);
+                                        notifyFailure(callback, e);
+                                    }
+                                }))
+                                .addOnFailureListener(mainThreadExecutor, e -> {
+                                    Log.e(TAG, "Failed to download observations", e);
+                                    notifyFailure(callback, e);
+                                });
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "downloadUserData: error while processing hikes", e);
+                        notifyFailure(callback, e);
+                    }
+                }))
+                .addOnFailureListener(e -> {
+                    Log.e(TAG, "Failed to download hikes for user " + firebaseUid, e);
+                    notifyFailure(callback, e);
+                });
     }
 }
 ```
@@ -5855,13 +6065,13 @@ public class FirebaseSyncManager {
 
 | Method | Description |
 |--------|-------------|
-| `GeminiEmbeddingService(String)` | Constructor accepting API key |
+| `GeminiEmbeddingService()` | No-arg constructor that reads the API key from `BuildConfig.GEMINI_API_KEY` and logs a short preview for debugging |
 | `isConfigured()` | Returns true if API key is non-null and non-empty |
-| `fetchEmbedding(String, String, String, String)` | Sends POST to Gemini embedContent endpoint, returns float[] |
-| `buildPrompt(String, String, String, String)` | Constructs prompt with firebaseUid, chunkType, chunkId, text context |
-| `buildPayload(String)` | Creates JSON request body with model and content fields |
-| `parseEmbedding(String)` | Extracts embedding.values array from JSON response into float[] |
-| `readFully(InputStream)` | Reads entire InputStream into String using ByteArrayOutputStream |
+| `fetchEmbedding(String, String, String, String)` | Sends POST to Gemini `embedContent` endpoint using the `text-embedding-004` model, returns `float[]` |
+| `buildPrompt(String, String, String, String)` | Constructs prompt with firebaseUid, chunkType, chunkId, text context and truncates very long text |
+| `buildPayload(String)` | Creates JSON request body with model and `content.parts[].text` fields |
+| `parseEmbedding(String)` | Extracts `embedding.values` array from JSON response into `float[]` |
+| `readFully(InputStream)` | Reads entire InputStream into String using `BufferedReader` |
 
 **Complete Code Implementation**:
 
@@ -5876,7 +6086,8 @@ public class FirebaseSyncManager {
 public class GeminiEmbeddingService {
 
     private static final String TAG = "GeminiEmbeddingService";
-    private static final String MODEL_NAME = "models/gemini-2.5-flash";
+    // Use a dedicated embedding model that supports embedContent
+    private static final String MODEL_NAME = "models/text-embedding-004";
     private static final String ENDPOINT =
             "https://generativelanguage.googleapis.com/v1beta/" + MODEL_NAME + ":embedContent";
     private static final int MAX_PROMPT_LENGTH = 2000;
@@ -5913,17 +6124,17 @@ public class GeminiEmbeddingService {
             return null;
         }
         if (TextUtils.isEmpty(text)) {
-            return null;
-        }
+        return null;
+    }
 
-        String prompt = buildPrompt(firebaseUid, chunkType, chunkId, text);
+    String prompt = buildPrompt(firebaseUid, chunkType, chunkId, text);
         HttpURLConnection connection = null;
-        try {
-            URL url = new URL(ENDPOINT + "?key=" + apiKey);
+    try {
+        URL url = new URL(ENDPOINT + "?key=" + apiKey);
             connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("POST");
+        connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            connection.setDoOutput(true);
+        connection.setDoOutput(true);
 
             byte[] payloadBytes = buildPayload(prompt).getBytes(StandardCharsets.UTF_8);
             OutputStream os = connection.getOutputStream();
@@ -5941,8 +6152,8 @@ public class GeminiEmbeddingService {
                 return null;
             }
             return parseEmbedding(responseBody);
-        } catch (IOException | JSONException e) {
-            Log.e(TAG, "Failed to fetch embedding", e);
+    } catch (IOException | JSONException e) {
+        Log.e(TAG, "Failed to fetch embedding", e);
             return null;
         } finally {
             if (connection != null) {
@@ -5980,7 +6191,7 @@ public class GeminiEmbeddingService {
         JSONObject json = new JSONObject(responseBody);
         if (!json.has("embedding")) {
             Log.e(TAG, "Gemini response missing embedding: " + responseBody);
-            return null;
+    return null;
         }
         JSONObject embeddingObject = json.getJSONObject("embedding");
         JSONArray values = embeddingObject.optJSONArray("values");
@@ -6402,18 +6613,18 @@ public class SearchHelper {
     /**
      * Calculate Levenshtein distance (edit distance) between two strings
      * This measures how many single-character edits are needed to change one word into another
-     */
-    public static int levenshteinDistance(String s1, String s2) {
-        int len1 = s1.length();
-        int len2 = s2.length();
-        
+ */
+public static int levenshteinDistance(String s1, String s2) {
+    int len1 = s1.length();
+    int len2 = s2.length();
+
         // If one string is empty, distance is length of the other
-        if (len1 == 0) return len2;
-        if (len2 == 0) return len1;
-        
+    if (len1 == 0) return len2;
+    if (len2 == 0) return len1;
+
         // Create distance matrix
-        int[][] dp = new int[len1 + 1][len2 + 1];
-        
+    int[][] dp = new int[len1 + 1][len2 + 1];
+
         // Initialize first row and column
         for (int i = 0; i <= len1; i++) {
             dp[i][0] = i;
@@ -6421,13 +6632,13 @@ public class SearchHelper {
         for (int j = 0; j <= len2; j++) {
             dp[0][j] = j;
         }
-        
-        // Fill the matrix
-        for (int i = 1; i <= len1; i++) {
-            for (int j = 1; j <= len2; j++) {
+
+    // Fill the matrix
+    for (int i = 1; i <= len1; i++) {
+        for (int j = 1; j <= len2; j++) {
                 int cost = (s1.charAt(i - 1) == s2.charAt(j - 1)) ? 0 : 1;
                 
-                dp[i][j] = Math.min(
+            dp[i][j] = Math.min(
                     Math.min(
                         dp[i - 1][j] + 1,      // deletion
                         dp[i][j - 1] + 1       // insertion
@@ -6437,7 +6648,7 @@ public class SearchHelper {
             }
         }
         
-        return dp[len1][len2];
+    return dp[len1][len2];
     }
     
     /**

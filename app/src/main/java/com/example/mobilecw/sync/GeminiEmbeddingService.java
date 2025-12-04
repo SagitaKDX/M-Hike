@@ -28,7 +28,9 @@ import java.nio.charset.StandardCharsets;
 public class GeminiEmbeddingService {
 
     private static final String TAG = "GeminiEmbeddingService";
-    private static final String MODEL_NAME = "models/gemini-2.5-flash";
+    // Use a dedicated embedding model that supports embedContent
+    // See: https://ai.google.dev/gemini-api/docs/models/gemini
+    private static final String MODEL_NAME = "models/text-embedding-004";
     private static final String ENDPOINT =
             "https://generativelanguage.googleapis.com/v1beta/" + MODEL_NAME + ":embedContent";
     private static final int MAX_PROMPT_LENGTH = 2000;
