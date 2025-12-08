@@ -1,8 +1,10 @@
 package com.example.mobilecw.activities;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.ImageButton;
@@ -12,6 +14,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -27,6 +30,8 @@ import com.example.mobilecw.adapters.NearbyTrailAdapter;
 import com.example.mobilecw.database.AppDatabase;
 import com.example.mobilecw.database.dao.HikeDao;
 import com.example.mobilecw.database.entities.Hike;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
 
 import org.json.JSONObject;
 
@@ -54,6 +59,10 @@ public class HomeActivity extends AppCompatActivity {
     private HikeDao hikeDao;
     private RequestQueue requestQueue;
     private ExecutorService executorService;
+    private FusedLocationProviderClient fusedLocationClient;
+    private static final int REQUEST_LOCATION_PERMISSION = 2001;
+    private static final double DEFAULT_LAT = 10.4963;
+    private static final double DEFAULT_LON = 107.169;
     
     private SharedPreferences sharedPreferences;
     private static final String PREFS_NAME = "mhike_prefs";
@@ -74,6 +83,9 @@ public class HomeActivity extends AppCompatActivity {
         
         // Initialize executor for database operations
         executorService = Executors.newSingleThreadExecutor();
+
+        // Initialize location provider for weather
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         
         // Initialize SharedPreferences
         sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -94,7 +106,7 @@ public class HomeActivity extends AppCompatActivity {
         loadNearbyTrails();
         
         // Fetch weather
-        fetchWeather();
+        fetchWeatherWithUserLocation();
     }
     
     @Override
@@ -261,11 +273,37 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
     
-    private void fetchWeather() {
+    private void fetchWeatherWithUserLocation() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                    REQUEST_LOCATION_PERMISSION
+            );
+            return;
+        }
+
+        fusedLocationClient.getLastLocation()
+                .addOnSuccessListener(location -> {
+                    if (location != null) {
+                        fetchWeather(location.getLatitude(), location.getLongitude());
+                    } else {
+                        fetchWeather(DEFAULT_LAT, DEFAULT_LON);
+                    }
+                })
+                .addOnFailureListener(e -> fetchWeather(DEFAULT_LAT, DEFAULT_LON));
+    }
+
+    private void fetchWeather(double latitude, double longitude) {
         // Using meteoblue Free Weather API (Current weather package)
         // API key stored securely in local.properties via BuildConfig
         String apiKey = BuildConfig.METEOBLUE_API_KEY;
-        String url = "https://my.meteoblue.com/packages/current?apikey=" + apiKey + "&lat=10.4963&lon=107.169&asl=8&format=json&tz=GMT&forecast_days=1";
+        String url = "https://my.meteoblue.com/packages/current?apikey=" + apiKey +
+                "&lat=" + latitude +
+                "&lon=" + longitude +
+                "&asl=8&format=json&tz=GMT&forecast_days=1";
 
         JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(
                 Request.Method.GET,
@@ -275,31 +313,17 @@ public class HomeActivity extends AppCompatActivity {
                     @Override
                     public void onResponse(JSONObject response) {
                         try {
-                            // Example meteoblue response:
-                            // {
-                            //   "metadata": {...},
-                            //   "units": {"temperature":"C", ...},
-                            //   "data_current": {
-                            //       "time":"2025-12-01 07:00",
-                            //       "temperature":30.92,
-                            //       "pictocode":2,
-                            //       ...
-                            //   }
-                            // }
-
                             JSONObject metadata = response.getJSONObject("metadata");
                             JSONObject units = response.getJSONObject("units");
                             JSONObject dataCurrent = response.getJSONObject("data_current");
 
-                            double latitude = metadata.optDouble("latitude", 0.0);
-                            double longitude = metadata.optDouble("longitude", 0.0);
+                            double metaLat = metadata.optDouble("latitude", latitude);
+                            double metaLon = metadata.optDouble("longitude", longitude);
                             double temp = dataCurrent.getDouble("temperature");
                             String tempUnit = units.optString("temperature", "C");
 
-                            // Build simple location label from coordinates
-                            String locationLabel = String.format("Lat %.4f, Lon %.4f", latitude, longitude);
+                            String locationLabel = String.format("Lat %.4f, Lon %.4f", metaLat, metaLon);
 
-                            // Update UI
                             weatherLocation.setText(locationLabel);
                             weatherTemp.setText(String.format("%.0f°%s", temp, tempUnit));
                             weatherDescription.setText(getString(R.string.weather_updated));
@@ -314,7 +338,6 @@ public class HomeActivity extends AppCompatActivity {
                     @Override
                     public void onErrorResponse(VolleyError error) {
                         weatherDescription.setText(getString(R.string.weather_error));
-                        // For demo purposes, show mock data
                         weatherLocation.setText("Current Location");
                         weatherTemp.setText("22°C");
                         weatherDescription.setText("Partly Cloudy");
@@ -323,6 +346,19 @@ public class HomeActivity extends AppCompatActivity {
         );
 
         requestQueue.add(jsonObjectRequest);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_LOCATION_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                fetchWeatherWithUserLocation();
+            } else {
+                // Fall back to default coordinates if permission denied
+                fetchWeather(DEFAULT_LAT, DEFAULT_LON);
+            }
+        }
     }
     
     private void loadActiveHike() {

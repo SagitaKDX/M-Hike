@@ -234,7 +234,8 @@
                         android:layout_height="wrap_content"
                         android:minHeight="48dp"
                         android:background="@drawable/nav_item_background"
-                        android:padding="12dp" />
+                        android:padding="16dp"
+                        android:prompt="@string/select_difficulty_level" />
                 </LinearLayout>
 
                 <!-- Parking Available -->

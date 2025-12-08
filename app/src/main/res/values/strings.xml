@@ -40,6 +40,7 @@
     <string name="date_required">Date *</string>
     <string name="length_km_required">Length (km) *</string>
     <string name="difficulty_level_required">Difficulty Level *</string>
+    <string name="select_difficulty_level">Select a difficulty level</string>
     <string name="length_km">Length (km)</string>
     <string name="length_hint">e.g., 8.5</string>
     <string name="difficulty_level">Difficulty Level</string>

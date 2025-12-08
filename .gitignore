@@ -13,3 +13,14 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Documentation files (keep only README.md visible)
+*.pdf
+DATABASE_SCHEMA.md
+EMBEDDING_PROMPTS.md
+FIREBASE_INTEGRATION.md
+GEMINI_VECTOR_SETUP.md
+HOME_PAGE_SETUP.md
+SYSTEM_DOCUMENTATION.md
+DEMO_PLAN.md
+backend/SETUP_GUIDE.md

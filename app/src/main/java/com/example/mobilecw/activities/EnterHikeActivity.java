@@ -152,6 +152,7 @@ public class EnterHikeActivity extends AppCompatActivity {
         );
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         difficultySpinner.setAdapter(adapter);
+        difficultySpinner.setSelection(0);
     }
     
     private void setupDatePicker() {
@@ -352,6 +353,12 @@ public class EnterHikeActivity extends AppCompatActivity {
                 lengthInput.setError("Invalid number");
                 isValid = false;
             }
+        }
+
+        // Validate difficulty selection (ensure hint is not chosen)
+        if (difficultySpinner.getSelectedItemPosition() == 0) {
+            Toast.makeText(this, getString(R.string.select_difficulty_level), Toast.LENGTH_SHORT).show();
+            isValid = false;
         }
         
         if (!isValid) {

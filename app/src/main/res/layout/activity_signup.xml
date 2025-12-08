@@ -81,12 +81,15 @@
                             android:layout_width="64dp"
                             android:layout_height="64dp"
                             android:background="@drawable/circle_primary_dark"
-                            android:layout_marginBottom="8dp">
+                            android:layout_marginBottom="8dp"
+                            android:foregroundGravity="center"
+                            android:foreground="?attr/selectableItemBackgroundBorderless">
 
                             <ImageView
                                 android:layout_width="32dp"
                                 android:layout_height="32dp"
                                 android:src="@android:drawable/ic_menu_add"
+                                android:layout_gravity="center"
                                 app:tint="@color/white" />
                         </FrameLayout>
 
@@ -106,6 +109,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:hint="@string/full_name"
+                    app:hintTextColor="@color/text_green_light"
                     app:startIconDrawable="@android:drawable/ic_menu_myplaces"
                     app:errorEnabled="true">
 
@@ -114,6 +118,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPersonName"
+                        android:textColor="@color/text_green"
+                        android:textColorHint="@color/text_green_light"
                         android:padding="16dp" />
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -124,6 +130,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:hint="@string/email_address"
+                    app:hintTextColor="@color/text_green_light"
                     app:startIconDrawable="@android:drawable/ic_dialog_email"
                     app:errorEnabled="true">
 
@@ -132,6 +139,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textEmailAddress"
+                        android:textColor="@color/text_green"
+                        android:textColorHint="@color/text_green_light"
                         android:padding="16dp" />
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -142,6 +151,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:hint="@string/phone_number"
+                    app:hintTextColor="@color/text_green_light"
                     app:startIconDrawable="@android:drawable/ic_menu_call"
                     app:errorEnabled="true">
 
@@ -150,6 +160,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="phone"
+                        android:textColor="@color/text_green"
+                        android:textColorHint="@color/text_green_light"
                         android:padding="16dp" />
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -160,6 +172,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:hint="@string/password"
+                    app:hintTextColor="@color/text_green_light"
                     app:startIconDrawable="@android:drawable/ic_lock_lock"
                     app:endIconMode="password_toggle"
                     app:errorEnabled="true">
@@ -169,6 +182,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPassword"
+                        android:textColor="@color/text_green"
+                        android:textColorHint="@color/text_green_light"
                         android:padding="16dp" />
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -179,6 +194,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:hint="@string/confirm_password"
+                    app:hintTextColor="@color/text_green_light"
                     app:startIconDrawable="@android:drawable/ic_lock_lock"
                     app:endIconMode="password_toggle"
                     app:errorEnabled="true">
@@ -188,6 +204,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPassword"
+                        android:textColor="@color/text_green"
+                        android:textColorHint="@color/text_green_light"
                         android:padding="16dp" />
                 </com.google.android.material.textfield.TextInputLayout>
 
