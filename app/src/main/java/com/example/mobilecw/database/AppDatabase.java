@@ -20,7 +20,7 @@ import com.example.mobilecw.database.entities.User;
  */
 @Database(
         entities = {Hike.class, Observation.class, User.class},
-        version = 6,
+        version = 8,
         exportSchema = false
 )
 @TypeConverters({Converters.class})

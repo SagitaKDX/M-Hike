@@ -34,6 +34,8 @@ public class Hike {
     private Long createdAt;
     private Long updatedAt;
     private Boolean synced; // true if synced to cloud
+    private Boolean deleted; // soft delete flag
+    private Long deletedAt;
     
     // Constructors
     public Hike() {
@@ -41,6 +43,8 @@ public class Hike {
         this.updatedAt = System.currentTimeMillis();
         this.synced = false;
         this.isActive = false;
+        this.deleted = false;
+        this.deletedAt = null;
     }
     
     public Hike(String name, String location, Date date, boolean parkingAvailable, 
@@ -57,6 +61,8 @@ public class Hike {
         this.updatedAt = System.currentTimeMillis();
         this.synced = false;
         this.isActive = false;
+        this.deleted = false;
+        this.deletedAt = null;
     }
     
     // Getters and Setters
@@ -186,6 +192,22 @@ public class Hike {
     
     public void setEndTime(Long endTime) {
         this.endTime = endTime;
+    }
+
+    public Boolean getDeleted() {
+        return deleted;
+    }
+
+    public void setDeleted(Boolean deleted) {
+        this.deleted = deleted;
+    }
+
+    public Long getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(Long deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }
 

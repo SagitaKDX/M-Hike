@@ -20,6 +20,7 @@ import com.example.mobilecw.adapters.HikeListAdapter;
 import com.example.mobilecw.auth.SessionManager;
 import com.example.mobilecw.database.AppDatabase;
 import com.example.mobilecw.database.dao.HikeDao;
+import com.example.mobilecw.database.dao.ObservationDao;
 import com.example.mobilecw.database.entities.Hike;
 import com.example.mobilecw.sync.FirebaseSyncManager;
 import com.example.mobilecw.utils.NetworkUtils;
@@ -45,6 +46,7 @@ public class HikingListActivity extends AppCompatActivity implements HikeListAda
 
     private AppDatabase database;
     private HikeDao hikeDao;
+    private ObservationDao observationDao;
     private ExecutorService executorService;
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
 
@@ -58,6 +60,7 @@ public class HikingListActivity extends AppCompatActivity implements HikeListAda
 
         database = AppDatabase.getDatabase(this);
         hikeDao = database.hikeDao();
+        observationDao = database.observationDao();
         executorService = Executors.newSingleThreadExecutor();
 
         recyclerView = findViewById(R.id.hikeRecyclerView);
@@ -223,11 +226,16 @@ public class HikingListActivity extends AppCompatActivity implements HikeListAda
     
     private void deleteSelectedHikes(List<Integer> selectedIds) {
         executorService.execute(() -> {
-            hikeDao.deleteHikesByIds(selectedIds);
+            long now = System.currentTimeMillis();
+            hikeDao.softDeleteHikesByIds(selectedIds, now, now);
+            for (Integer hikeId : selectedIds) {
+                observationDao.softDeleteObservationsByHikeId(hikeId, now, now);
+            }
             runOnUiThread(() -> {
                 Toast.makeText(this, R.string.delete_selected, Toast.LENGTH_SHORT).show();
                 exitSelectionMode();
                 loadHikes();
+                syncIfLoggedIn();
             });
         });
     }
@@ -247,11 +255,22 @@ public class HikingListActivity extends AppCompatActivity implements HikeListAda
     
     private void deleteAllHikes() {
         executorService.execute(() -> {
-            hikeDao.deleteAllHikes();
+            long now = System.currentTimeMillis();
+            List<Integer> hikeIds = new ArrayList<>();
+            for (Hike hike : currentHikes) {
+                hikeIds.add(hike.getHikeID());
+            }
+            if (!hikeIds.isEmpty()) {
+                hikeDao.softDeleteHikesByIds(hikeIds, now, now);
+                for (Integer hikeId : hikeIds) {
+                    observationDao.softDeleteObservationsByHikeId(hikeId, now, now);
+                }
+            }
             runOnUiThread(() -> {
                 Toast.makeText(this, R.string.delete_all, Toast.LENGTH_SHORT).show();
                 exitSelectionMode();
                 loadHikes();
+                syncIfLoggedIn();
             });
         });
     }
@@ -324,6 +343,12 @@ public class HikingListActivity extends AppCompatActivity implements HikeListAda
         });
     }
 
+    private void syncIfLoggedIn() {
+        if (SessionManager.isLoggedIn(this) && NetworkUtils.isOnline(this)) {
+            FirebaseSyncManager.getInstance(getApplicationContext()).syncNow();
+        }
+    }
+
     private void seedSampleData() {
         List<Hike> sampleHikes = new ArrayList<>();
         sampleHikes.add(createSampleHike("Mountain Peak Trail", "Rocky Mountain", "2025-11-21", true, 8.5, "Hard", "Challenging but rewarding trail"));
@@ -351,7 +376,6 @@ public class HikingListActivity extends AppCompatActivity implements HikeListAda
         hike.setDifficulty(difficulty);
         hike.setDescription(description);
         hike.setPurchaseParkingPass("");
-        // Seeded hikes are for non-registered (local-only) users
         hike.setUserId(null);
         hike.setSynced(false);
         hike.setCreatedAt(System.currentTimeMillis());

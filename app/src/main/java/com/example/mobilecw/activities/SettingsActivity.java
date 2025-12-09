@@ -122,23 +122,31 @@ public class SettingsActivity extends AppCompatActivity {
             return;
         }
 
+        // User is logged in, enable logout button immediately
+        updateLogoutState(true);
+
         executorService.execute(() -> {
-            User user = userDao.getUserById(userId);
-            runOnUiThread(() -> {
-                if (user != null) {
-                    String name = user.getUserName() != null && !user.getUserName().trim().isEmpty()
-                            ? user.getUserName()
-                            : getString(R.string.adventure_seeker);
-                    String email = user.getUserEmail() != null && !user.getUserEmail().trim().isEmpty()
-                            ? user.getUserEmail()
-                            : getString(R.string.default_user_email);
-                    setAccountInfo(name, email);
-                    updateLogoutState(true);
-                } else {
+            try {
+                User user = userDao.getUserById(userId);
+                runOnUiThread(() -> {
+                    if (user != null) {
+                        String name = user.getUserName() != null && !user.getUserName().trim().isEmpty()
+                                ? user.getUserName()
+                                : getString(R.string.adventure_seeker);
+                        String email = user.getUserEmail() != null && !user.getUserEmail().trim().isEmpty()
+                                ? user.getUserEmail()
+                                : getString(R.string.default_user_email);
+                        setAccountInfo(name, email);
+                    } else {
+                        setAccountInfo(getString(R.string.adventure_seeker), getString(R.string.default_user_email));
+                    }
+                });
+            } catch (Exception e) {
+                // Database error (likely schema mismatch) - still allow logout
+                runOnUiThread(() -> {
                     setAccountInfo(getString(R.string.adventure_seeker), getString(R.string.default_user_email));
-                    updateLogoutState(false);
-                }
-            });
+                });
+            }
         });
     }
 
@@ -177,24 +185,29 @@ public class SettingsActivity extends AppCompatActivity {
         FirebaseSyncManager.getInstance(getApplicationContext()).syncNow(new FirebaseSyncManager.SyncCallback() {
             @Override
             public void onSuccess() {
-                executorService.execute(() -> {
-                    database.clearAllTables();
-                    runOnUiThread(() -> {
-                        SessionManager.clearCurrentUser(SettingsActivity.this);
-                        Toast.makeText(SettingsActivity.this, R.string.logout_success, Toast.LENGTH_SHORT).show();
-                        navigateToUsers();
-                    });
-                });
+                performLogoutCleanup();
             }
 
             @Override
             public void onFailure(Exception exception) {
-                runOnUiThread(() -> {
-                    logoutButton.setEnabled(true);
-                    logoutButton.setText(R.string.logout);
-                    Toast.makeText(SettingsActivity.this, R.string.logout_sync_failed, Toast.LENGTH_LONG).show();
-                });
+                // Even if sync fails, still perform logout to avoid getting stuck
+                performLogoutCleanup();
             }
+        });
+    }
+
+    private void performLogoutCleanup() {
+        executorService.execute(() -> {
+            try {
+                database.clearAllTables();
+            } catch (Exception e) {
+                // Database error - ignore and continue with logout
+            }
+            runOnUiThread(() -> {
+                SessionManager.clearCurrentUser(SettingsActivity.this);
+                Toast.makeText(SettingsActivity.this, R.string.logout_success, Toast.LENGTH_SHORT).show();
+                navigateToUsers();
+            });
         });
     }
 

@@ -21,13 +21,13 @@ public interface ObservationDao {
     void insertAllObservations(List<Observation> observations);
     
     // Query operations
-    @Query("SELECT * FROM observations ORDER BY time DESC")
+    @Query("SELECT * FROM observations WHERE deleted IS NULL OR deleted = 0 ORDER BY time DESC")
     List<Observation> getAllObservations();
     
-    @Query("SELECT * FROM observations WHERE observationID = :observationId")
+    @Query("SELECT * FROM observations WHERE observationID = :observationId AND (deleted IS NULL OR deleted = 0)")
     Observation getObservationById(int observationId);
     
-    @Query("SELECT * FROM observations WHERE hikeId = :hikeId ORDER BY time DESC")
+    @Query("SELECT * FROM observations WHERE hikeId = :hikeId AND (deleted IS NULL OR deleted = 0) ORDER BY time DESC")
     List<Observation> getObservationsByHikeId(int hikeId);
     
     // Update operations
@@ -46,6 +46,15 @@ public interface ObservationDao {
     
     @Query("DELETE FROM observations")
     void deleteAllObservations();
+    
+    @Query("UPDATE observations SET deleted = 1, deletedAt = :deletedAt, updatedAt = :updatedAt, synced = 0 WHERE observationID = :observationId")
+    void softDeleteObservationById(int observationId, long deletedAt, long updatedAt);
+    
+    @Query("UPDATE observations SET deleted = 1, deletedAt = :deletedAt, updatedAt = :updatedAt, synced = 0 WHERE hikeId = :hikeId")
+    void softDeleteObservationsByHikeId(int hikeId, long deletedAt, long updatedAt);
+    
+    @Query("UPDATE observations SET deleted = 1, deletedAt = :deletedAt, updatedAt = :updatedAt, synced = 0")
+    void softDeleteAllObservations(long deletedAt, long updatedAt);
     
     // Sync operations
     @Query("SELECT * FROM observations WHERE synced = 0 OR synced IS NULL")

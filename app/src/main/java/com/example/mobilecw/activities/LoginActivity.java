@@ -124,15 +124,23 @@ public class LoginActivity extends AppCompatActivity {
 
                     // Find or create corresponding local Room user
                     executorService.execute(() -> {
-                        User user = userDao.getUserByEmail(email);
-                        if (user == null) {
+                        User user = null;
+                        try {
+                            user = userDao.getUserByEmail(email);
+                            if (user == null) {
+                                user = new User(email, password);
+                                user.setFirebaseUid(firebaseUid);
+                                long newId = userDao.insertUser(user);
+                                user.setUserId((int) newId);
+                            } else {
+                                user.setFirebaseUid(firebaseUid);
+                                userDao.updateUser(user);
+                            }
+                        } catch (Exception e) {
+                            // Database error - create a temporary user object
                             user = new User(email, password);
                             user.setFirebaseUid(firebaseUid);
-                            long newId = userDao.insertUser(user);
-                            user.setUserId((int) newId);
-                        } else {
-                            user.setFirebaseUid(firebaseUid);
-                            userDao.updateUser(user);
+                            user.setUserId(1); // Temporary ID
                         }
 
                         User finalUser = user;

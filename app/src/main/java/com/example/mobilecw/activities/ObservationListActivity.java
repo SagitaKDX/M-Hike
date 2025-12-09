@@ -15,9 +15,12 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.mobilecw.R;
 import com.example.mobilecw.adapters.ObservationListAdapter;
+import com.example.mobilecw.auth.SessionManager;
 import com.example.mobilecw.database.AppDatabase;
 import com.example.mobilecw.database.dao.ObservationDao;
 import com.example.mobilecw.database.entities.Observation;
+import com.example.mobilecw.sync.FirebaseSyncManager;
+import com.example.mobilecw.utils.NetworkUtils;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -136,10 +139,12 @@ public class ObservationListActivity extends AppCompatActivity implements Observ
 
     private void deleteObservation(Observation observation) {
         executorService.execute(() -> {
-            observationDao.deleteObservation(observation);
+            long now = System.currentTimeMillis();
+            observationDao.softDeleteObservationById(observation.getObservationID(), now, now);
             runOnUiThread(() -> {
                 Toast.makeText(this, R.string.observation_deleted, Toast.LENGTH_SHORT).show();
                 loadObservations();
+                syncIfLoggedIn();
             });
         });
     }
@@ -149,6 +154,12 @@ public class ObservationListActivity extends AppCompatActivity implements Observ
         super.onDestroy();
         if (executorService != null) {
             executorService.shutdown();
+        }
+    }
+
+    private void syncIfLoggedIn() {
+        if (SessionManager.isLoggedIn(this) && NetworkUtils.isOnline(this)) {
+            FirebaseSyncManager.getInstance(getApplicationContext()).syncNow();
         }
     }
 }

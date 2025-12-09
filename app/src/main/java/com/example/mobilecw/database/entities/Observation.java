@@ -30,6 +30,8 @@ public class Observation {
     private Long createdAt;
     private Long updatedAt;
     private Boolean synced; // true if synced to cloud
+    private Boolean deleted; // soft delete flag
+    private Long deletedAt;
     
     // Constructors
     public Observation() {
@@ -37,6 +39,8 @@ public class Observation {
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = System.currentTimeMillis();
         this.synced = false;
+        this.deleted = false;
+        this.deletedAt = null;
     }
     
     public Observation(String observationText, Date time, String comments, int hikeId) {
@@ -47,6 +51,8 @@ public class Observation {
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = System.currentTimeMillis();
         this.synced = false;
+        this.deleted = false;
+        this.deletedAt = null;
     }
     
     // Getters and Setters
@@ -128,6 +134,22 @@ public class Observation {
     
     public void setSynced(Boolean synced) {
         this.synced = synced;
+    }
+
+    public Boolean getDeleted() {
+        return deleted;
+    }
+
+    public void setDeleted(Boolean deleted) {
+        this.deleted = deleted;
+    }
+
+    public Long getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(Long deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }
 

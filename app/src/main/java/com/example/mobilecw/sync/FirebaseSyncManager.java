@@ -183,7 +183,7 @@ public class FirebaseSyncManager {
             return tasks;
         }
 
-        List<Hike> userHikes = hikeDao.getHikesByUserId(userId);
+         List<Hike> userHikes = hikeDao.getAllHikesByUserIdIncludingDeleted(userId);
         Set<Integer> allowedHikeIds = new HashSet<>();
         for (Hike hike : userHikes) {
             allowedHikeIds.add(hike.getHikeID());
@@ -231,6 +231,8 @@ public class FirebaseSyncManager {
         data.put("endTime", hike.getEndTime());
         data.put("createdAt", hike.getCreatedAt());
         data.put("updatedAt", hike.getUpdatedAt());
+        data.put("deleted", hike.getDeleted());
+        data.put("deletedAt", hike.getDeletedAt());
         data.put("syncedAt", FieldValue.serverTimestamp());
         return data;
     }
@@ -244,6 +246,8 @@ public class FirebaseSyncManager {
         data.put("picture", observation.getPicture());
         data.put("createdAt", observation.getCreatedAt());
         data.put("updatedAt", observation.getUpdatedAt());
+        data.put("deleted", observation.getDeleted());
+        data.put("deletedAt", observation.getDeletedAt());
         data.put("syncedAt", FieldValue.serverTimestamp());
         return data;
     }
@@ -331,7 +335,16 @@ public class FirebaseSyncManager {
                             Long updatedAt = doc.getLong("updatedAt");
                             hike.setCreatedAt(createdAt);
                             hike.setUpdatedAt(updatedAt);
+                            Boolean deleted = doc.getBoolean("deleted");
+                            Long deletedAt = doc.getLong("deletedAt");
+                            hike.setDeleted(deleted != null && deleted);
+                            hike.setDeletedAt(deletedAt);
                             hike.setSynced(true);
+
+                            // Skip inserting deleted hikes locally
+                            if (Boolean.TRUE.equals(hike.getDeleted())) {
+                                continue;
+                            }
 
                             // Insert/replace hike locally
                             hikeDao.insertHike(hike);
@@ -399,9 +412,15 @@ public class FirebaseSyncManager {
                                                 Long updatedAt = obsDoc.getLong("updatedAt");
                                                 obs.setCreatedAt(createdAt);
                                                 obs.setUpdatedAt(updatedAt);
+                                                Boolean deleted = obsDoc.getBoolean("deleted");
+                                                Long deletedAt = obsDoc.getLong("deletedAt");
+                                                obs.setDeleted(deleted != null && deleted);
+                                                obs.setDeletedAt(deletedAt);
                                                 obs.setSynced(true);
 
-                                                observationDao.insertObservation(obs);
+                                                if (!Boolean.TRUE.equals(obs.getDeleted())) {
+                                                    observationDao.insertObservation(obs);
+                                                }
                                             }
                                         }
                                         notifySuccess(callback);

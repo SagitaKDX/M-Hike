@@ -145,7 +145,6 @@ public class SemanticSearchService {
                 SearchResult result = new SearchResult(resultJson);
                 results.add(result);
             } catch (JSONException e) {
-                // Skip invalid results
             }
         }
 
