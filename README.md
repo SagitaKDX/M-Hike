@@ -1,15 +1,6 @@
 # COMP1786 Mobile Application Design and Development
 
-## Coursework 1: M-Hike Application Report
 
-| | |
-|---|---|
-| **Student Name** | [Your Name] |
-| **Student ID** | [Your ID] |
-| **Date** | [Current Date] |
-| **Module** | COMP1786 |
-
----
 
 ## Table of Contents
 
