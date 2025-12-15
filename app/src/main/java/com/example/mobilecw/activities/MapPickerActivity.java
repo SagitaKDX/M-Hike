@@ -123,7 +123,6 @@ public class MapPickerActivity extends AppCompatActivity {
                 mapView.getModel().frameBufferModel.getOverdrawFactor()
         );
 
-        // Use OpenStreetMap Mapnik tiles (online, free, no API key)
         OpenStreetMapMapnik tileSource = OpenStreetMapMapnik.INSTANCE;
         tileSource.setUserAgent("MHike-Android-App");
         
